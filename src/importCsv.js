@@ -98,25 +98,27 @@ export function parseExpensesCSV(text, { defaultBank, defaultAccountType } = {})
       errors.push(`Ligne ${i + 1}: date invalide "${date}" (attendu YYYY-MM-DD).`);
       continue;
     }
-    if (!Number.isFinite(amount) || amount <= 0) {
+    if (!Number.isFinite(amount)) {
       errors.push(`Ligne ${i + 1}: montant invalide "${amountRaw}".`);
       continue;
     }
-    if (!category) {
-      errors.push(`Ligne ${i + 1}: catégorie manquante.`);
+
+    // Montant = 0 -> on ignore la ligne (pas une erreur)
+    if (amount === 0) {
       continue;
     }
 
     // on accepte les banques/types même si nouveaux, mais on garde des valeurs par défaut si vide
     const cleanBank = String(bank || "").trim() || "Physique";
     const cleanType = String(accountType || "").trim() || "Compte courant";
+    const safeCategory = String(category || "Autres").trim() || "Autres";
 
     rows.push({
       id: uid(),
       date,
       kind,
       amount: Math.round(amount * 100) / 100,
-      category: String(category).trim(),
+      category: safeCategory,
       bank: cleanBank,
       accountType: cleanType,
       note: String(note || "").trim()

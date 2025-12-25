@@ -8,11 +8,12 @@ export default function ExpenseList({ expenses, categories, banks, accountTypes,
   const [month, setMonth] = useState("ALL");
   const [cat, setCat] = useState("Toutes");
   const [q, setQ] = useState("");
-
   const [mode, setMode] = useState("month"); // "month" | "range"
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
 
+  // Helper pour ajuster la taille de l'application a un mobile
+  const isMobile = typeof window !== "undefined" && window.innerWidth < 700;
 
   const months = useMemo(() => {
     const set = new Set(expenses.map(e => currentMonthKey(e.date)));
@@ -110,7 +111,6 @@ export default function ExpenseList({ expenses, categories, banks, accountTypes,
   // ---- EDIT MODE ----
   const [editingId, setEditingId] = useState(null);
   const editing = useMemo(() => filtered.find(e => e.id === editingId) ?? null, [filtered, editingId]);
-
   const [editAmount, setEditAmount] = useState("");
   const [editCategory, setEditCategory] = useState(categories[0] ?? "Autres");
   const [editKind, setEditKind] = useState("expense");
@@ -118,6 +118,9 @@ export default function ExpenseList({ expenses, categories, banks, accountTypes,
   const [editAccountType, setEditAccountType] = useState(accountTypes?.[0] ?? "Compte courant");
   const [editDate, setEditDate] = useState(new Date().toISOString().slice(0, 10));
   const [editNote, setEditNote] = useState("");
+
+
+
 
   function openEdit(e) {
     setEditingId(e.id);
@@ -157,8 +160,12 @@ export default function ExpenseList({ expenses, categories, banks, accountTypes,
     <div style={{ padding: 12, display: "grid", gap: 12 }}>
       <div style={styles.card}>
         <div style={{ display: "grid", gap: 10 }}>
-          <div style={styles.row2}>
-            
+         <div
+            style={{
+              ...styles.row2,
+              gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr"
+            }}
+          >
             <label style={styles.label}>
               Catégorie
               <select value={cat} onChange={(e) => setCat(e.target.value)} style={styles.input}>
@@ -166,7 +173,7 @@ export default function ExpenseList({ expenses, categories, banks, accountTypes,
                 {categories.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
             </label>
-          
+
             <label style={styles.label}>
               Filtre
               <select value={mode} onChange={(e) => setMode(e.target.value)} style={styles.input}>
@@ -189,26 +196,15 @@ export default function ExpenseList({ expenses, categories, banks, accountTypes,
               <>
                 <label style={styles.label}>
                   Du
-                  <input
-                    type="date"
-                    value={from}
-                    onChange={(e) => setFrom(e.target.value)}
-                    style={styles.input}
-                  />
+                  <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={styles.input} />
                 </label>
 
                 <label style={styles.label}>
                   Au
-                  <input
-                    type="date"
-                    value={to}
-                    onChange={(e) => setTo(e.target.value)}
-                    style={styles.input}
-                  />
+                  <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={styles.input} />
                 </label>
               </>
             )}
-
           </div>
 
           <label style={styles.label}>
@@ -224,7 +220,8 @@ export default function ExpenseList({ expenses, categories, banks, accountTypes,
             </div>
 
           
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+
             <button onClick={exportCSV} style={styles.btnSecondary}>Exporter CSV</button>
 
             <label style={styles.btnSecondary}>
