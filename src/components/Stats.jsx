@@ -36,14 +36,14 @@ export default function Stats({ expenses, categories }) {
     });
   }, [expenses, mode, from, to, month]);
 
-  // Build chart data by category (expenses only)
-  const data = useMemo(() => {
+
+  
+  // calcul des deux dataset
+  const expenseData = useMemo(() => {
     const map = new Map(categories.map(c => [c, 0]));
 
     for (const e of statsFiltered) {
-      // On ne prend que les dépenses pour le camembert
-      if (e.kind === "income") continue;
-
+      if (e.kind !== "expense") continue;
       const cat = String(e.category || "Autres").trim() || "Autres";
       map.set(cat, (map.get(cat) || 0) + Number(e.amount || 0));
     }
@@ -54,7 +54,34 @@ export default function Stats({ expenses, categories }) {
       .sort((a, b) => b.value - a.value);
   }, [statsFiltered, categories]);
 
-  const total = useMemo(() => data.reduce((s, d) => s + d.value, 0), [data]);
+  const incomeData = useMemo(() => {
+    const map = new Map(categories.map(c => [c, 0]));
+
+    for (const e of statsFiltered) {
+      if (e.kind !== "income") continue;
+      const cat = String(e.category || "Autres").trim() || "Autres";
+      map.set(cat, (map.get(cat) || 0) + Number(e.amount || 0));
+    }
+
+    return Array.from(map.entries())
+      .map(([name, value]) => ({ name, value: Math.round(value * 100) / 100 }))
+      .filter(d => d.value > 0)
+      .sort((a, b) => b.value - a.value);
+  }, [statsFiltered, categories]);
+  // fin des blocs de calcul  
+
+
+
+
+
+
+
+
+  const expenseTotal = useMemo(() => expenseData.reduce((s, d) => s + d.value, 0), [expenseData]);
+  const incomeTotal = useMemo(() => incomeData.reduce((s, d) => s + d.value, 0), [incomeData]);
+
+
+
 
   return (
     <div style={{ padding: 12, display: "grid", gap: 12 }}>
@@ -104,21 +131,29 @@ export default function Stats({ expenses, categories }) {
           </div>
 
           <div style={styles.big}>
-            Total dépenses (filtre): <span style={{ fontWeight: 900 }}>{formatEUR(total)}</span>
+            Dépenses (filtre): <span style={{ fontWeight: 900 }}>{formatEUR(expenseTotal)}</span>
           </div>
+          <div style={styles.big}>
+            Revenus (filtre): <span style={{ fontWeight: 900 }}>{formatEUR(incomeTotal)}</span>
+          </div>
+
         </div>
       </div>
 
+      
+
       <div style={styles.card}>
-        {data.length === 0 ? (
+        <h3 style={{ margin: 0, marginBottom: 10 }}>Répartition des dépenses</h3>
+
+        {expenseData.length === 0 ? (
           <div style={{ color: "#6b7280", textAlign: "center", padding: 24 }}>
-            Pas de données pour ce filtre.
+            Pas de dépenses pour ce filtre.
           </div>
         ) : (
           <div style={{ width: "100%", height: 320 }}>
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
-                <Pie dataKey="value" data={data} label />
+                <Pie dataKey="value" data={expenseData} label />
                 <Tooltip formatter={(v) => formatEUR(v)} />
                 <Legend />
               </PieChart>
@@ -127,11 +162,37 @@ export default function Stats({ expenses, categories }) {
         )}
       </div>
 
-      {data.length > 0 && (
+
+
+
+      <div style={styles.card}>
+        <h3 style={{ margin: 0, marginBottom: 10 }}>Répartition des revenus</h3>
+
+        {incomeData.length === 0 ? (
+          <div style={{ color: "#6b7280", textAlign: "center", padding: 24 }}>
+            Pas de revenus pour ce filtre.
+          </div>
+        ) : (
+          <div style={{ width: "100%", height: 320 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie dataKey="value" data={incomeData} label />
+                <Tooltip formatter={(v) => formatEUR(v)} />
+                <Legend />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </div>
+
+
+
+
+      {expenseData.length > 0 && (
         <div style={styles.card}>
           <h3 style={{ margin: 0, marginBottom: 10 }}>Top catégories</h3>
           <div style={{ display: "grid", gap: 8 }}>
-            {data.slice(0, 6).map(d => (
+            {expenseData.slice(0, 6).map(d => (
               <div key={d.name} style={styles.line}>
                 <div style={{ fontWeight: 800 }}>{d.name}</div>
                 <div style={{ fontWeight: 900 }}>{formatEUR(d.value)}</div>
