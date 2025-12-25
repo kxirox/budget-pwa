@@ -5,21 +5,40 @@ import { parseExpensesCSV } from "../importCsv";
 
 
 export default function ExpenseList({ expenses, categories, banks, accountTypes, onDelete, onUpdate, onImport }) {
-  const [month, setMonth] = useState(currentMonthKey(new Date().toISOString().slice(0, 10)));
+  const [month, setMonth] = useState("ALL");
   const [cat, setCat] = useState("Toutes");
   const [q, setQ] = useState("");
+
+  const [mode, setMode] = useState("month"); // "month" | "range"
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+
 
   const months = useMemo(() => {
     const set = new Set(expenses.map(e => currentMonthKey(e.date)));
     const arr = Array.from(set);
     arr.sort((a, b) => b.localeCompare(a));
-    if (arr.length === 0) return [currentMonthKey(new Date().toISOString().slice(0, 10))];
-    return arr;
+    if (arr.length === 0) return ["ALL"];
+    return ["ALL", ...arr];
   }, [expenses]);
+
+
 
   const filtered = useMemo(() => {
     return expenses
-      .filter(e => currentMonthKey(e.date) === month)
+      .filter(e => {
+        const d = String(e.date || "").trim();
+
+        if (mode === "range") {
+          if (from && d < from) return false;
+          if (to && d > to) return false;
+          return true;
+        }
+
+        // mode month
+        if (month === "ALL") return true;
+        return currentMonthKey(d) === month;
+      })
       .filter(e => (cat === "Toutes" ? true : e.category === cat))
       .filter(e => {
         if (!q.trim()) return true;
@@ -33,7 +52,8 @@ export default function ExpenseList({ expenses, categories, banks, accountTypes,
       })
       .slice()
       .sort((a, b) => b.date.localeCompare(a.date));
-  }, [expenses, month, cat, q]);
+  }, [expenses, month, mode, from, to, cat, q]);
+
 
   const totals = useMemo(() => {
     let income = 0;
@@ -79,6 +99,7 @@ export default function ExpenseList({ expenses, categories, banks, accountTypes,
     // IMPORTANT: onUpdate ne sert pas ici, on a besoin d’un setter => on passe par un callback onImport
     // => on va ajouter une prop onImport ci-dessous.
       onImport(rows);
+      console.log("IMPORT pushed rows:", rows.length, rows[0]);
       alert("Import terminé ✅");
     };
     reader.readAsText(file, "utf-8");
@@ -137,13 +158,7 @@ export default function ExpenseList({ expenses, categories, banks, accountTypes,
       <div style={styles.card}>
         <div style={{ display: "grid", gap: 10 }}>
           <div style={styles.row2}>
-            <label style={styles.label}>
-              Mois
-              <select value={month} onChange={(e) => setMonth(e.target.value)} style={styles.input}>
-                {months.map(m => <option key={m} value={m}>{monthLabelFR(m)}</option>)}
-              </select>
-            </label>
-
+            
             <label style={styles.label}>
               Catégorie
               <select value={cat} onChange={(e) => setCat(e.target.value)} style={styles.input}>
@@ -151,6 +166,49 @@ export default function ExpenseList({ expenses, categories, banks, accountTypes,
                 {categories.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
             </label>
+          
+            <label style={styles.label}>
+              Filtre
+              <select value={mode} onChange={(e) => setMode(e.target.value)} style={styles.input}>
+                <option value="month">Par mois</option>
+                <option value="range">Par période</option>
+              </select>
+            </label>
+
+            {mode === "month" ? (
+              <label style={styles.label}>
+                Mois
+                <select value={month} onChange={(e) => setMonth(e.target.value)} style={styles.input}>
+                  <option value="ALL">Tous les mois</option>
+                  {months.filter(m => m !== "ALL").map(m => (
+                    <option key={m} value={m}>{monthLabelFR(m)}</option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <>
+                <label style={styles.label}>
+                  Du
+                  <input
+                    type="date"
+                    value={from}
+                    onChange={(e) => setFrom(e.target.value)}
+                    style={styles.input}
+                  />
+                </label>
+
+                <label style={styles.label}>
+                  Au
+                  <input
+                    type="date"
+                    value={to}
+                    onChange={(e) => setTo(e.target.value)}
+                    style={styles.input}
+                  />
+                </label>
+              </>
+            )}
+
           </div>
 
           <label style={styles.label}>
@@ -293,17 +351,17 @@ const styles = {
     padding: 14,
     borderRadius: 16,
     border: "1px solid #e5e7eb",
-    background: "white"
+    background: "white",
   },
-  row2: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 },
+  row2: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 },
   label: { display: "grid", gap: 6, fontWeight: 700, fontSize: 12, color: "#111827" },
-  input: { padding: "12px 12px", borderRadius: 12, border: "1px solid #d1d5db", fontSize: 15 },
+  input: { padding: "12px", borderRadius: 12, border: "1px solid #d1d5db", fontSize: 15 },
   summary: {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 10,
-    paddingTop: 4
+    paddingTop: 4,
   },
   total: { fontSize: 20, fontWeight: 900 },
   muted: { color: "#6b7280", fontSize: 12 },
@@ -312,7 +370,7 @@ const styles = {
     borderRadius: 12,
     border: "1px solid #111827",
     background: "white",
-    fontWeight: 800
+    fontWeight: 800,
   },
   item: {
     padding: 14,
@@ -322,7 +380,7 @@ const styles = {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 12
+    gap: 12,
   },
   btnEdit: {
     padding: "10px 12px",
@@ -330,7 +388,7 @@ const styles = {
     border: "1px solid #111827",
     background: "#111827",
     color: "white",
-    fontWeight: 900
+    fontWeight: 900,
   },
   btnDanger: {
     padding: "10px 12px",
@@ -338,7 +396,7 @@ const styles = {
     border: "1px solid #ef4444",
     background: "#ef4444",
     color: "white",
-    fontWeight: 900
+    fontWeight: 900,
   },
   empty: { color: "#6b7280", textAlign: "center", padding: 24 },
 
@@ -350,7 +408,7 @@ const styles = {
     alignItems: "center",
     justifyContent: "center",
     padding: 12,
-    zIndex: 50
+    zIndex: 50,
   },
   modal: {
     width: "100%",
@@ -358,7 +416,7 @@ const styles = {
     background: "white",
     borderRadius: 18,
     border: "1px solid #e5e7eb",
-    padding: 14
+    padding: 14,
   },
   btnPrimary: {
     padding: "10px 12px",
@@ -366,13 +424,13 @@ const styles = {
     border: "1px solid #111827",
     background: "#111827",
     color: "white",
-    fontWeight: 900
+    fontWeight: 900,
   },
   btnX: {
     border: "1px solid #e5e7eb",
     background: "white",
     borderRadius: 12,
     padding: "6px 10px",
-    fontWeight: 900
-  }
+    fontWeight: 900,
+  },
 };
