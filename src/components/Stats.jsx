@@ -3,27 +3,56 @@ import { PieChart, Pie, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { currentMonthKey, formatEUR, monthLabelFR } from "../utils";
 
 export default function Stats({ expenses, categories }) {
-  const [month, setMonth] = useState(currentMonthKey(new Date().toISOString().slice(0, 10)));
+  // UI filter
+  const [mode, setMode] = useState("month"); // "month" | "range"
+  const [month, setMonth] = useState("ALL"); // "ALL" or "YYYY-MM"
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+
+  const isMobile = typeof window !== "undefined" && window.innerWidth < 700;
 
   const months = useMemo(() => {
-    const set = new Set(expenses.map(e => currentMonthKey(e.date)));
+    const set = new Set(expenses.map(e => currentMonthKey(String(e.date || "").trim())));
     const arr = Array.from(set);
     arr.sort((a, b) => b.localeCompare(a));
-    if (arr.length === 0) return [currentMonthKey(new Date().toISOString().slice(0, 10))];
-    return arr;
+    if (arr.length === 0) return ["ALL"];
+    return ["ALL", ...arr];
   }, [expenses]);
 
+  // Filtered expenses for stats
+  const statsFiltered = useMemo(() => {
+    return expenses.filter(e => {
+      const d = String(e.date || "").trim();
+
+      if (mode === "range") {
+        if (from && d < from) return false;
+        if (to && d > to) return false;
+        return true;
+      }
+
+      // mode month
+      if (month === "ALL") return true;
+      return currentMonthKey(d) === month;
+    });
+  }, [expenses, mode, from, to, month]);
+
+  // Build chart data by category (expenses only)
   const data = useMemo(() => {
     const map = new Map(categories.map(c => [c, 0]));
-    for (const e of expenses) {
-      if (currentMonthKey(e.date) !== month) continue;
-      map.set(e.category, (map.get(e.category) || 0) + Number(e.amount || 0));
+
+    for (const e of statsFiltered) {
+      // On ne prend que les dépenses pour le camembert
+      if (e.kind === "income") continue;
+
+      const cat = String(e.category || "Autres").trim() || "Autres";
+      map.set(cat, (map.get(cat) || 0) + Number(e.amount || 0));
     }
+
     return Array.from(map.entries())
       .map(([name, value]) => ({ name, value: Math.round(value * 100) / 100 }))
       .filter(d => d.value > 0)
       .sort((a, b) => b.value - a.value);
-  }, [expenses, categories, month]);
+  }, [statsFiltered, categories]);
 
   const total = useMemo(() => data.reduce((s, d) => s + d.value, 0), [data]);
 
@@ -31,15 +60,51 @@ export default function Stats({ expenses, categories }) {
     <div style={{ padding: 12, display: "grid", gap: 12 }}>
       <div style={styles.card}>
         <div style={{ display: "grid", gap: 10 }}>
-          <label style={styles.label}>
-            Mois
-            <select value={month} onChange={(e) => setMonth(e.target.value)} style={styles.input}>
-              {months.map(m => <option key={m} value={m}>{monthLabelFR(m)}</option>)}
-            </select>
-          </label>
+          {/* Filters - responsive */}
+          <div
+            style={{
+              display: "grid",
+              gap: 10,
+              gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr"
+            }}
+          >
+            <label style={styles.label}>
+              Filtre
+              <select value={mode} onChange={(e) => setMode(e.target.value)} style={styles.input}>
+                <option value="month">Par mois</option>
+                <option value="range">Par période</option>
+              </select>
+            </label>
+
+            {mode === "month" ? (
+              <label style={styles.label}>
+                Mois
+                <select value={month} onChange={(e) => setMonth(e.target.value)} style={styles.input}>
+                  <option value="ALL">Tous les mois</option>
+                  {months.filter(m => m !== "ALL").map(m => (
+                    <option key={m} value={m}>{monthLabelFR(m)}</option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <label style={styles.label}>
+                Du
+                <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={styles.input} />
+              </label>
+            )}
+
+            {mode === "range" ? (
+              <label style={styles.label}>
+                Au
+                <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={styles.input} />
+              </label>
+            ) : (
+              <div />
+            )}
+          </div>
 
           <div style={styles.big}>
-            Total du mois: <span style={{ fontWeight: 900 }}>{formatEUR(total)}</span>
+            Total dépenses (filtre): <span style={{ fontWeight: 900 }}>{formatEUR(total)}</span>
           </div>
         </div>
       </div>
@@ -47,11 +112,11 @@ export default function Stats({ expenses, categories }) {
       <div style={styles.card}>
         {data.length === 0 ? (
           <div style={{ color: "#6b7280", textAlign: "center", padding: 24 }}>
-            Pas de données pour ce mois.
+            Pas de données pour ce filtre.
           </div>
         ) : (
           <div style={{ width: "100%", height: 320 }}>
-            <ResponsiveContainer>
+            <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie dataKey="value" data={data} label />
                 <Tooltip formatter={(v) => formatEUR(v)} />
