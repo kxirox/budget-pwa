@@ -1,5 +1,25 @@
 const EXPENSES_KEY = "budget_pwa_expenses_v1";
 const CATEGORIES_KEY = "budget_pwa_categories_v1";
+const KEY_CATEGORY_COLORS = "budget.categoryColors.v1";
+
+export function loadCategoryColors() {
+  try {
+    const raw = localStorage.getItem(KEY_CATEGORY_COLORS);
+    const obj = raw ? JSON.parse(raw) : {};
+    return obj && typeof obj === "object" ? obj : {};
+  } catch {
+    return {};
+  }
+}
+
+export function saveCategoryColors(map) {
+  try {
+    localStorage.setItem(KEY_CATEGORY_COLORS, JSON.stringify(map || {}));
+  } catch {}
+}
+
+
+
 
 export const DEFAULT_CATEGORIES = [
   "Alimentation",

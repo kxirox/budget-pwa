@@ -1,10 +1,10 @@
 import React, { useMemo, useState, useEffect } from "react";
-import { PieChart, Pie, Tooltip, Legend, ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid } from "recharts";
+import { PieChart, Pie, Tooltip, Legend, ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Cell } from "recharts";
 import { currentMonthKey, formatEUR, monthLabelFR } from "../utils";
 
 
 
-export default function Stats({ expenses, categories }) {
+export default function Stats({ expenses, categories, categoryColors }) {
   // UI filter
   const [mode, setMode] = useState("month"); // "month" | "range"
   const [month, setMonth] = useState("ALL"); // "ALL" or "YYYY-MM"
@@ -20,7 +20,7 @@ export default function Stats({ expenses, categories }) {
   const MAX_ROWS = isMobile ? 8 : 12;
 
   // Legend component for PieChart
-  function LegendList({ items }) {
+  function LegendList({ items, categoryColors }) {
     if (!items?.length) return null;
 
     return (
@@ -35,10 +35,25 @@ export default function Stats({ expenses, categories }) {
       >
         {items.slice(0, MAX_ROWS).map((d) => (
           <div key={d.name} style={styles.legendRow}>
-            <div style={styles.legendName} title={d.name}>{d.name}</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+              <span
+                style={{
+                  width: 10,
+                  height: 10,
+                  borderRadius: 999,
+                  background: categoryColors?.[d.name] || "#6b7280",
+                  flex: "0 0 auto"
+                }}
+              />
+              <div style={styles.legendName} title={d.name}>
+                {d.name}
+              </div>
+            </div>
+
             <div style={styles.legendValue}>{formatEUR(d.value)}</div>
           </div>
         ))}
+
 
         {items.length > MAX_ROWS && (
           <div style={{ marginTop: 8, color: "#6b7280", fontSize: 12 }}>
@@ -357,13 +372,18 @@ export default function Stats({ expenses, categories }) {
                   label={!isMobile}
                   labelLine={!isMobile}
                   isAnimationActive={!isMobile}
-                />
+                >
+                  {expenseData.map((entry) => (
+                    <Cell key={entry.name} fill={categoryColors?.[entry.name] || "#6b7280"} />
+                  ))}
+                </Pie>
 
                 <Tooltip formatter={(v) => formatEUR(v)} />
                 {!isMobile && <Legend />}
               </PieChart>
             </ResponsiveContainer>
-            {isMobile && <LegendList items={expenseData} />}
+            {isMobile && <LegendList items={expenseData} categoryColors={categoryColors} />}
+
           </div>
         )}
       </div>
@@ -383,17 +403,23 @@ export default function Stats({ expenses, categories }) {
               <PieChart>
                 <Pie
                   dataKey="value"
-                  data={expenseData}
+                  data={incomeData}
                   label={!isMobile}
                   labelLine={!isMobile}
                   isAnimationActive={!isMobile}
-                />
+                >
+                  {incomeData.map((entry) => (
+                    <Cell key={entry.name} fill={categoryColors?.[entry.name] || "#6b7280"} />
+                  ))}
+                </Pie>
+
                 <Tooltip formatter={(v) => formatEUR(v)} />
                 {!isMobile && <Legend />}
               </PieChart>
             </ResponsiveContainer>
 
-            {isMobile && <LegendList items={incomeData} />}
+            {isMobile && <LegendList items={incomeData} categoryColors={categoryColors} />}
+
           </div>
         )}
       </div>

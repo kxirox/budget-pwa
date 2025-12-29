@@ -11,23 +11,64 @@ import {
   saveExpenses,
   uid,
   DEFAULT_BANKS,
-  DEFAULT_ACCOUNT_TYPES
+  DEFAULT_ACCOUNT_TYPES,
+  loadCategoryColors,
+  saveCategoryColors
 } from "./storage.js";
+
+
+
+
 
 
 export default function App() {
   const [tab, setTab] = useState("add");
   const [categories, setCategories] = useState(() => loadCategories());
   const [expenses, setExpenses] = useState(() => loadExpenses());
-
+  const [categoryColors, setCategoryColors] = useState(() => loadCategoryColors());
   // Persistance
   useEffect(() => saveCategories(categories), [categories]);
   useEffect(() => saveExpenses(expenses), [expenses]);
+  useEffect(() => saveCategoryColors(categoryColors), [categoryColors]);
 
   const safeCategories = useMemo(() => {
     const unique = Array.from(new Set(categories.map(c => String(c).trim()).filter(Boolean)));
     return unique.length ? unique : ["Autres"];
   }, [categories]);
+
+
+
+  useEffect(() => {
+  // Palette simple (tu peux changer plus tard)
+  const palette = [
+    "#2563eb", "#dc2626", "#16a34a", "#f59e0b", "#7c3aed", "#0891b2",
+    "#db2777", "#4b5563", "#65a30d", "#ea580c", "#0f766e", "#9333ea"
+  ];
+
+
+
+
+  function hashToIndex(str) {
+      let h = 0;
+      for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0;
+      return h % palette.length;
+    }
+
+    setCategoryColors(prev => {
+      let changed = false;
+      const next = { ...(prev || {}) };
+
+      for (const c of safeCategories) {
+        if (!next[c]) {
+          next[c] = palette[hashToIndex(String(c))];
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [safeCategories]);
+
+
 
   function addExpense(payload) {
     const e = {
@@ -91,7 +132,7 @@ function updateExpense(id, patch) {
 
 
       {tab === "stats" && (
-        <Stats expenses={expenses} categories={safeCategories} />
+        <Stats expenses={expenses} categories={safeCategories} categoryColors={categoryColors} />
       )}
 
       {tab === "cats" && (
@@ -102,6 +143,11 @@ function updateExpense(id, patch) {
     </div>
   );
 }
+//fin default function
+
+
+
+
 
 const styles = {
   page: {
