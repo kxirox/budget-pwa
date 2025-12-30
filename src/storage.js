@@ -111,3 +111,26 @@ export function uid() {
   // Simple id unique
   return `${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
+
+
+
+
+
+
+const KEY_RECURRING = "budget.recurring.v1";
+
+export function loadRecurring() {
+  try {
+    const raw = localStorage.getItem(KEY_RECURRING);
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveRecurring(list) {
+  try {
+    localStorage.setItem(KEY_RECURRING, JSON.stringify(Array.isArray(list) ? list : []));
+  } catch {}
+}

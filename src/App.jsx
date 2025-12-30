@@ -15,6 +15,9 @@ import {
   loadCategoryColors,
   saveCategoryColors
 } from "./storage.js";
+import { loadRecurring, saveRecurring } from "./storage.js";
+import { applyRecurring } from "./recurring.js";
+
 
 
 
@@ -26,10 +29,32 @@ export default function App() {
   const [categories, setCategories] = useState(() => loadCategories());
   const [expenses, setExpenses] = useState(() => loadExpenses());
   const [categoryColors, setCategoryColors] = useState(() => loadCategoryColors());
+  const [recurring, setRecurring] = useState(() => loadRecurring());
+
+
   // Persistance
+  useEffect(() => saveRecurring(recurring), [recurring]);
+
+  useEffect(() => {
+    const { nextExpenses, nextRules, addedCount } = applyRecurring(recurring, expenses);
+
+    // éviter boucle infinie : ne set que si changement
+    if (addedCount > 0) setExpenses(nextExpenses);
+
+    // si nextDate a changé sur des règles, on les sauvegarde
+    const changed = JSON.stringify(nextRules) !== JSON.stringify(recurring);
+    if (changed) setRecurring(nextRules);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // au premier chargement uniquement
+
+
   useEffect(() => saveCategories(categories), [categories]);
   useEffect(() => saveExpenses(expenses), [expenses]);
   useEffect(() => saveCategoryColors(categoryColors), [categoryColors]);
+
+
+
+
 
   const safeCategories = useMemo(() => {
     const unique = Array.from(new Set(categories.map(c => String(c).trim()).filter(Boolean)));
