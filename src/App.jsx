@@ -64,35 +64,86 @@ export default function App() {
 
 
 
+
+ //choix des couleurs des category dans les graphiques
   useEffect(() => {
-  // Palette simple (tu peux changer plus tard)
-  const palette = [
-    "#2563eb", "#dc2626", "#16a34a", "#f59e0b", "#7c3aed", "#0891b2",
-    "#db2777", "#4b5563", "#65a30d", "#ea580c", "#0f766e", "#9333ea"
-  ];
+    const palette = [
+      // actuelles
+      "#2563eb", "#dc2626", "#16a34a", "#f59e0b", "#7c3aed", "#0891b2",
+      "#db2777", "#4b5563", "#65a30d", "#ea580c", "#0f766e", "#9333ea",
+
+      // nouvelles (ajoutées)
+      "#06b6d4", "#f43f5e", "#84cc16", "#22c55e", "#eab308", "#3b82f6",
+      "#a855f7", "#14b8a6", "#fb7185", "#facc15", "#4ade80", "#38bdf8",
+      "#c084fc", "#2dd4bf", "#fde047", "#86efac", "#7dd3fc", "#ddd6fe"
+    ];
 
 
 
-
-  function hashToIndex(str) {
+    function hashToIndex(str) {
       let h = 0;
       for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0;
       return h % palette.length;
     }
 
     setCategoryColors(prev => {
-      let changed = false;
       const next = { ...(prev || {}) };
+      let changed = false;
 
+      // 1) Remplir les catégories manquantes (sans collision)
+      const used = new Set(Object.values(next));
       for (const c of safeCategories) {
-        if (!next[c]) {
-          next[c] = palette[hashToIndex(String(c))];
+        const key = String(c).trim();
+        if (!key) continue;
+
+        if (!next[key]) {
+          let idx = hashToIndex(key);
+          let tries = 0;
+          while (used.has(palette[idx]) && tries < palette.length) {
+            idx = (idx + 1) % palette.length;
+            tries++;
+          }
+          next[key] = palette[idx];
+          used.add(next[key]);
           changed = true;
         }
       }
+
+      // 2) Nettoyer les doublons existants (Divers/Transport par ex.)
+      const seen = new Map(); // color -> categoryKey
+      for (const key of Object.keys(next)) {
+        const color = next[key];
+        if (!color) continue;
+
+        if (seen.has(color)) {
+          // doublon => réassigner celui-ci à une couleur libre
+          const baseIdx = hashToIndex(key);
+          let idx = baseIdx;
+          let tries = 0;
+
+          // couleur déjà utilisée => on cherche une couleur libre
+          const usedNow = new Set(Object.values(next));
+          while (usedNow.has(palette[idx]) && tries < palette.length) {
+            idx = (idx + 1) % palette.length;
+            tries++;
+          }
+
+          if (palette[idx] !== color) {
+            next[key] = palette[idx];
+            changed = true;
+          }
+        } else {
+          seen.set(color, key);
+        }
+      }
+
       return changed ? next : prev;
     });
   }, [safeCategories]);
+
+
+
+
 
 
 
