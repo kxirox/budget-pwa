@@ -166,7 +166,13 @@ function updateExpense(id, patch) {
       )}
 
       {tab === "recurring" && (
-        <Recurring />
+        <Recurring
+          recurring={recurring}
+          setRecurring={setRecurring}
+          categories={safeCategories}
+          banks={DEFAULT_BANKS}
+          accountTypes={DEFAULT_ACCOUNT_TYPES}
+        />
       )}
 
 
