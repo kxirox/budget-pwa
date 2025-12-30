@@ -5,8 +5,10 @@ export default function TopBar({ tab, setTab }) {
     { key: "add", label: "Ajouter" },
     { key: "list", label: "Historique" },
     { key: "stats", label: "Stats" },
-    { key: "cats", label: "Catégories" }
+    { key: "cats", label: "Catégories" },
+    { key: "recurring", label: "Récurrent" }   
   ];
+
 
   return (
     <div style={styles.bar}>

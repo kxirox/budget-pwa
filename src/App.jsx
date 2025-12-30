@@ -17,6 +17,7 @@ import {
 } from "./storage.js";
 import { loadRecurring, saveRecurring } from "./storage.js";
 import { applyRecurring } from "./recurring.js";
+import Recurring from "./components/Recurring.jsx";
 
 
 
@@ -163,6 +164,12 @@ function updateExpense(id, patch) {
       {tab === "cats" && (
         <Categories categories={safeCategories} onSetCategories={setCategories} />
       )}
+
+      {tab === "recurring" && (
+        <Recurring />
+      )}
+
+
 
       <div style={{ height: 30 }} />
     </div>
