@@ -4,7 +4,7 @@ import { parseExpensesCSV } from "../importCsv";
 
 
 
-export default function ExpenseList({ expenses, categories, banks, accountTypes, onDelete, onUpdate, onImport }) {
+export default function ExpenseList({ expenses, categories, banks, accountTypes, onDelete, onUpdate, onImport, onOpenWipeModal }) {
   const [month, setMonth] = useState("ALL");
   const [cat, setCat] = useState("Toutes");
   const [q, setQ] = useState("");
@@ -339,6 +339,30 @@ export default function ExpenseList({ expenses, categories, banks, accountTypes,
           </div>
         </div>
       )}
+
+        <div style={{ marginTop: 16 }}>
+          <button
+            type = "button"
+            onClick={onOpenWipeModal}
+            style={{
+              background: "#dc2626",
+              color: "white",
+              border: "none",
+              borderRadius: 12,
+              padding: "10px 12px",
+              fontWeight: 700,
+              cursor: "pointer",
+              width: "100%",
+            }}
+          >
+            Supprimer tout l’historique
+          </button>
+        </div>
+
+
+
+
+
     </div>
   );
 }

@@ -51,6 +51,10 @@ export default function Categories({ categories, onSetCategories }) {
           Note : supprimer une catégorie ne modifie pas les anciennes dépenses.  
           (Tu peux la recréer si besoin.)
         </div>
+
+
+
+
       </div>
     </div>
   );

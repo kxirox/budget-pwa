@@ -33,6 +33,13 @@ export default function App() {
   const [recurring, setRecurring] = useState(() => loadRecurring());
 
 
+  // wipe data modal pour supprimer toutes les donnees d'un coup 
+  const [showWipeModal, setShowWipeModal] = useState(false);
+  const [wipeText, setWipeText] = useState("");
+
+
+
+
   // Persistance
   useEffect(() => saveRecurring(recurring), [recurring]);
 
@@ -144,6 +151,24 @@ export default function App() {
 
 
 
+  function wipeHistory() {
+    // 1) reset state
+    setExpenses([]);
+    // si tu as setIncomes séparé, décommente :
+    // setIncomes([]);
+
+    // 2) reset storage
+    localStorage.removeItem("budget_pwa_expenses_v1");
+    // si tu as une clé incomes, décommente :
+    // localStorage.removeItem("budget_pwa_incomes_v1");
+
+    // optionnel : on remet le texte et on ferme
+    setWipeText("");
+    setShowWipeModal(false);
+  }
+
+
+
 
 
 
@@ -204,6 +229,7 @@ function updateExpense(id, patch) {
           onDelete={deleteExpense}
           onUpdate={updateExpense}
           onImport={(rows) => setExpenses(prev => [...rows, ...prev])}
+          onOpenWipeModal={() => setShowWipeModal(true)}
         />
       )}
 
@@ -214,6 +240,8 @@ function updateExpense(id, patch) {
 
       {tab === "cats" && (
         <Categories categories={safeCategories} onSetCategories={setCategories} />
+
+        
       )}
 
       {tab === "recurring" && (
@@ -225,6 +253,92 @@ function updateExpense(id, patch) {
           accountTypes={DEFAULT_ACCOUNT_TYPES}
         />
       )}
+
+
+
+
+
+
+        {showWipeModal && (
+          <div style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.35)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 12,
+            zIndex: 9999
+          }}>
+            <div style={{
+              width: "100%",
+              maxWidth: 520,
+              background: "white",
+              borderRadius: 18,
+              border: "1px solid #e5e7eb",
+              padding: 16,
+              maxHeight: "90vh",
+              overflowY: "auto"
+            }}>
+              <h3 style={{ marginTop: 0 }}>Supprimer tout l’historique</h3>
+              <p style={{ color: "#6b7280", marginTop: 6 }}>
+                Cette action supprime <b>toutes tes opérations</b> (dépenses/revenus) et ne peut pas être annulée.
+              </p>
+
+              <p style={{ marginBottom: 6 }}>
+                Tape <b>SUPPRIMER</b> pour confirmer :
+              </p>
+
+              <input
+                value={wipeText}
+                onChange={(e) => setWipeText(e.target.value)}
+                placeholder="SUPPRIMER"
+                style={{
+                  width: "100%",
+                  padding: 10,
+                  borderRadius: 12,
+                  border: "1px solid #e5e7eb",
+                  outline: "none",
+                  marginBottom: 12
+                }}
+              />
+
+              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                <button
+                  onClick={() => { setShowWipeModal(false); setWipeText(""); }}
+                  style={{
+                    background: "#f3f4f6",
+                    border: "1px solid #e5e7eb",
+                    borderRadius: 12,
+                    padding: "10px 12px",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                  }}
+                >
+                  Annuler
+                </button>
+
+                <button
+                  onClick={wipeHistory}
+                  disabled={wipeText.trim().toUpperCase() !== "SUPPRIMER"}
+                  style={{
+                    background: wipeText.trim().toUpperCase() === "SUPPRIMER" ? "#dc2626" : "#fca5a5",
+                    color: "white",
+                    border: "none",
+                    borderRadius: 12,
+                    padding: "10px 12px",
+                    fontWeight: 800,
+                    cursor: wipeText.trim().toUpperCase() === "SUPPRIMER" ? "pointer" : "not-allowed",
+                  }}
+                >
+                  Supprimer définitivement
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+
 
 
 

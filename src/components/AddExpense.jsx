@@ -98,6 +98,19 @@ export default function AddExpense({ categories, banks, accountTypes, onAdd }) {
         <p style={styles.hint}>
           Astuce : une fois installée, l’app marche offline et garde tes données sur le téléphone.
         </p>
+
+
+
+
+
+
+
+
+
+
+
+
+
       </form>
     </div>
   );
