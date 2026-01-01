@@ -482,7 +482,10 @@ const styles = {
     alignItems: "center",
     justifyContent: "center",
     padding: 12,
-    zIndex: 50
+    zIndex: 50,
+    maxHeight: "90vh",       // 👈 ne dépasse jamais l’écran
+    overflowY: "auto"      // 👈 scroll interne si trop grand
+
   },
   modal: {
     width: "100%",
@@ -490,7 +493,9 @@ const styles = {
     background: "white",
     borderRadius: 18,
     border: "1px solid #e5e7eb",
-    padding: 14
+    padding: 14,
+    maxHeight: "90vh",       // 👈 ne dépasse jamais l’écran
+    overflowY: "auto"      // 👈 scroll interne si trop grand
   },
   btnX: {
     border: "1px solid #e5e7eb",
