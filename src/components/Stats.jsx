@@ -3,8 +3,14 @@ import { PieChart, Pie, Tooltip, Legend, ResponsiveContainer, LineChart, Line, X
 import { currentMonthKey, formatEUR, monthLabelFR } from "../utils";
 
 
-
-export default function Stats({ expenses, categories, categoryColors }) {
+export default function Stats({ 
+  expenses = [],
+  categories = [],
+  banks = [],
+  accountTypes = [],
+  categoryColors = {},
+  filters = {}
+}) {
   // UI filter
   const [mode, setMode] = useState("month"); // "month" | "range"
   const [month, setMonth] = useState("ALL"); // "ALL" or "YYYY-MM"
@@ -75,21 +81,44 @@ export default function Stats({ expenses, categories, categoryColors }) {
     return ["ALL", ...arr];
   }, [expenses]);
 
-  // Filtered expenses for stats
-  const statsFiltered = useMemo(() => {
-    return expenses.filter(e => {
-      const d = String(e.date || "").trim();
 
-      if (mode === "range") {
-        if (from && d < from) return false;
-        if (to && d > to) return false;
-        return true;
-      }
-      // mode month
-      if (month === "ALL") return true;
-      return currentMonthKey(d) === month;
-    });
-  }, [expenses, mode, from, to, month]);
+const safeBanks = Array.isArray(banks) ? banks : [];
+const safeAccountTypes = Array.isArray(accountTypes) ? accountTypes : [];
+const safeCategories = Array.isArray(categories) ? categories : [];
+const safeExpenses = Array.isArray(expenses) ? expenses : [];
+
+
+
+
+  // Filtered expenses for stats
+ const statsFiltered = useMemo(() => {
+  return safeExpenses.filter(e => {
+    const d = String(e.date || "").trim();
+
+    // Date
+    if (mode === "range") {
+      if (from && d < from) return false;
+      if (to && d > to) return false;
+    } else {
+      if (month !== "ALL" && currentMonthKey(d) !== month) return false;
+    }
+
+
+          // Filtre "scope" (banque ou type de compte) via selectedKey
+      if (scope === "bank" && selectedKey !== "ALL" && String(e.bank || "") !== selectedKey) return false;
+      if (scope === "type" && selectedKey !== "ALL" && String(e.accountType || "") !== selectedKey) return false;
+
+    return true;
+  });
+// mis en commentaire par lou en attendat resolution du pb de non filtrage par banque ou type de categorie  
+//}, [safeExpenses, mode, from, to, month, selectedBank, selectedAccountType, selectedCategory]);
+  }, [safeExpenses, mode, from, to, month, scope, selectedKey]);
+
+
+
+
+
+
 
 
   // Balance timeline par groupe (bank / type) pour le graphique
@@ -216,7 +245,7 @@ export default function Stats({ expenses, categories, categoryColors }) {
   
   // calcul des deux dataset
   const expenseData = useMemo(() => {
-    const map = new Map(categories.map(c => [c, 0]));
+    const map = new Map(safeCategories.map(c => [c, 0]));
 
     for (const e of statsFiltered) {
       if (e.kind !== "expense") continue;
@@ -228,10 +257,10 @@ export default function Stats({ expenses, categories, categoryColors }) {
       .map(([name, value]) => ({ name, value: Math.round(value * 100) / 100 }))
       .filter(d => d.value > 0)
       .sort((a, b) => b.value - a.value);
-  }, [statsFiltered, categories]);
+  }, [statsFiltered, safeCategories]);
 
   const incomeData = useMemo(() => {
-    const map = new Map(categories.map(c => [c, 0]));
+    const map = new Map(safeCategories.map(c => [c, 0]));
 
     for (const e of statsFiltered) {
       if (e.kind !== "income") continue;
@@ -243,7 +272,7 @@ export default function Stats({ expenses, categories, categoryColors }) {
       .map(([name, value]) => ({ name, value: Math.round(value * 100) / 100 }))
       .filter(d => d.value > 0)
       .sort((a, b) => b.value - a.value);
-  }, [statsFiltered, categories]);
+  }, [statsFiltered, safeCategories]);
   // fin des blocs de calcul  
 
 
@@ -342,12 +371,16 @@ export default function Stats({ expenses, categories, categoryColors }) {
             )}
           </div>
 
+
+
           <div style={styles.big}>
             Dépenses (filtre): <span style={{ fontWeight: 900 }}>{formatEUR(expenseTotal)}</span>
           </div>
           <div style={styles.big}>
             Revenus (filtre): <span style={{ fontWeight: 900 }}>{formatEUR(incomeTotal)}</span>
           </div>
+
+
 
         </div>
       </div>

@@ -204,7 +204,7 @@ function updateExpense(id, patch) {
   return (
     <div style={styles.page}>
       <div style={styles.header}>
-        <div style={styles.title}>Budget Perso</div>
+        <div style={styles.title}>STATERA</div>
         <div style={styles.subtitle}>Offline • Données sur ton téléphone • Export CSV</div>
       </div>
 
@@ -233,9 +233,15 @@ function updateExpense(id, patch) {
         />
       )}
 
-
       {tab === "stats" && (
-        <Stats expenses={expenses} categories={safeCategories} categoryColors={categoryColors} />
+        <Stats
+          expenses={expenses}
+          categories={safeCategories}
+          banks={DEFAULT_BANKS}
+          accountTypes={DEFAULT_ACCOUNT_TYPES}
+          categoryColors={categoryColors}
+          filters={{ bank: "ALL", accountType: "ALL", category: "ALL" }}
+        />
       )}
 
       {tab === "cats" && (
