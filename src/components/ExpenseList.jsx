@@ -1,10 +1,10 @@
 import React, { useMemo, useState } from "react";
-import { currentMonthKey, formatEUR, monthLabelFR, toCSV } from "../utils";
+import { currentMonthKey, formatEUR, monthLabelFR, toCSV, toISODate } from "../utils";
 import { parseExpensesCSV } from "../importCsv";
 
 
 
-export default function ExpenseList({ expenses, categories, banks, accountTypes, onDelete, onUpdate, onImport, onOpenWipeModal }) {
+export default function ExpenseList({ expenses, categories, banks, accountTypes, onDelete, onUpdate, onImport, onCreateReimbursement, onOpenWipeModal }) {
   const [month, setMonth] = useState("ALL");
   const [cat, setCat] = useState("Toutes");
   const [q, setQ] = useState("");
@@ -55,17 +55,53 @@ export default function ExpenseList({ expenses, categories, banks, accountTypes,
       .sort((a, b) => b.date.localeCompare(a.date));
   }, [expenses, month, mode, from, to, cat, q]);
 
+const reimburseByExpenseId = useMemo(() => {
+  const map = new Map(); // expenseId -> sum
+  for (const e of expenses) {
+    if (e.kind !== "reimbursement") continue;
+    const id = e.linkedExpenseId;
+    if (!id) continue;
+    map.set(id, (map.get(id) || 0) + Number(e.amount || 0));
+  }
+  return map;
+}, [expenses]);
 
-  const totals = useMemo(() => {
-    let income = 0;
-    let expense = 0;
-    for (const e of filtered) {
-      const a = Number(e.amount || 0);
-      if (e.kind === "income") income += a;
-      else expense += a;
-    }
-    return { income, expense, net: income - expense };
-  }, [filtered]);
+
+
+
+const totals = useMemo(() => {
+  let income = 0;
+  let reimbursements = 0;
+
+  // ✅ "Comptable" : on rattache les remboursements à la dépense d'origine.
+  // Donc les dépenses du filtre sont neutralisées même si le remboursement est hors période.
+  for (const e of filtered) {
+    const a = Number(e.amount || 0);
+    if (e.kind === "income") income += a;
+    if (e.kind === "reimbursement") reimbursements += a; // total cash dans la période
+  }
+
+  let expenseGross = 0;
+  let expenseNet = 0;
+
+  for (const e of filtered) {
+    if (e.kind !== "expense") continue;
+    const a = Number(e.amount || 0);
+    expenseGross += a;
+    const reimb = reimburseByExpenseId.get(e.id) || 0;
+    const net = Math.max(0, a - reimb);
+    expenseNet += net;
+  }
+
+  return {
+    income,
+    reimbursements,
+    expenseGross,
+    expenseNet,
+    // Solde bancaire (cash) pour la période : revenus + remboursements - dépenses brutes
+    net: income + reimbursements - expenseGross
+  };
+}, [filtered, reimburseByExpenseId]);
 
   function exportCSV() {
     const csv = toCSV(filtered);
@@ -114,6 +150,7 @@ export default function ExpenseList({ expenses, categories, banks, accountTypes,
   const [editAmount, setEditAmount] = useState("");
   const [editCategory, setEditCategory] = useState(categories[0] ?? "Autres");
   const [editKind, setEditKind] = useState("expense");
+  const [editLinkedExpenseId, setEditLinkedExpenseId] = useState("");
   const [editBank, setEditBank] = useState(banks?.[0] ?? "Physique");
   const [editAccountType, setEditAccountType] = useState(accountTypes?.[0] ?? "Compte courant");
   const [editDate, setEditDate] = useState(new Date().toISOString().slice(0, 10));
@@ -131,6 +168,7 @@ export default function ExpenseList({ expenses, categories, banks, accountTypes,
     setEditDate(e.date ?? new Date().toISOString().slice(0, 10));
     setEditNote(e.note ?? "");
     setEditKind(e.kind ?? "expense");
+    setEditLinkedExpenseId(e.linkedExpenseId ?? "");
 
   }
 
@@ -146,6 +184,7 @@ export default function ExpenseList({ expenses, categories, banks, accountTypes,
     }    
     onUpdate(editingId, {
       kind: editKind,
+      linkedExpenseId: editKind === "reimbursement" ? (editLinkedExpenseId || undefined) : undefined,
       amount: Math.round(a * 100) / 100,
       category: editCategory,
       bank: editBank,
@@ -214,8 +253,9 @@ export default function ExpenseList({ expenses, categories, banks, accountTypes,
 
           <div style={styles.summary}>
             <div>
-              <div style={styles.muted}>Dépenses : {formatEUR(totals.expense)}</div>
+              <div style={styles.muted}>Dépenses : {formatEUR(totals.expenseNet)} (brut {formatEUR(totals.expenseGross)})</div>
               <div style={styles.muted}>Revenus : {formatEUR(totals.income)}</div>
+              <div style={styles.muted}>Remboursements : {formatEUR(totals.reimbursements)}</div>
               <div style={styles.total}>Solde : {formatEUR(totals.net)}</div>
             </div>
 
@@ -252,13 +292,45 @@ export default function ExpenseList({ expenses, categories, banks, accountTypes,
             <div key={e.id} style={styles.item}>
               <div style={{ display: "grid", gap: 4 }}>
                 <div style={{ fontWeight: 800, fontSize: 16 }}>{formatEUR(e.amount)}</div>
+{e.kind === "expense" && (() => {
+  const reimb = reimburseByExpenseId.get(e.id) || 0;
+  if (reimb <= 0) return null;
+  const remaining = Math.max(0, Number(e.amount || 0) - reimb);
+  return (
+    <div style={{ color: "#6b7280", fontSize: 12 }}>
+      Remboursé: {formatEUR(reimb)} • Reste: {formatEUR(remaining)}
+    </div>
+  );
+})()}
                 <div style={styles.muted}>
-                   {e.date} • {e.kind === "income" ? "Revenu" : "Dépense"} • {e.category} • {e.bank ?? "Physique"} • {e.accountType ?? "Compte courant"}
+                   {e.date} • {e.kind === "income" ? "Revenu" : e.kind === "reimbursement" ? "Remboursement" : "Dépense"} • {e.category} • {e.bank ?? "Physique"} • {e.accountType ?? "Compte courant"}
                    {e.note ? ` • ${e.note}` : ""}
                 </div>
               </div>
 
               <div style={{ display: "flex", gap: 8 }}>
+{e.kind === "expense" && typeof onCreateReimbursement === "function" && (
+  <button
+    onClick={() => {
+      const v = prompt("Montant remboursé (€) :", "");
+      if (v == null) return;
+      const a = Number(String(v).replace(",", "."));
+      if (!Number.isFinite(a) || a <= 0) return alert("Montant invalide.");
+      const today = toISODate(new Date());
+      onCreateReimbursement({
+        linkedExpenseId: e.id,
+        amount: Math.round(a * 100) / 100,
+        date: today,
+        bank: e.bank,
+        accountType: e.accountType,
+        note: `Remboursement : ${e.note || e.category || ""}`.trim()
+      });
+    }}
+    style={styles.btnSecondary}
+  >
+    Remb.
+  </button>
+)}
                 <button onClick={() => openEdit(e)} style={styles.btnEdit}>Éditer</button>
                 <button onClick={() => onDelete(e.id)} style={styles.btnDanger}>Suppr.</button>
               </div>
@@ -277,8 +349,23 @@ export default function ExpenseList({ expenses, categories, banks, accountTypes,
               <select value={editKind} onChange={(e) => setEditKind(e.target.value)} style={styles.input}>
                 <option value="expense">Dépense</option>
                 <option value="income">Revenu</option>
+                <option value="reimbursement">Remboursement</option>
               </select>
             </label>
+
+{editKind === "reimbursement" && (
+  <label style={styles.label}>
+    Dépense remboursée
+    <select value={editLinkedExpenseId} onChange={(e) => setEditLinkedExpenseId(e.target.value)} style={styles.input}>
+      {expenses.filter(x => x.kind === "expense").slice().sort((a,b)=>String(b.date||"").localeCompare(String(a.date||""))).slice(0, 80).map(ex => (
+        <option key={ex.id} value={ex.id}>
+          {ex.date} • {ex.category} • {Number(ex.amount || 0).toFixed(2)}€
+          {ex.note ? ` • ${ex.note}` : ""}
+        </option>
+      ))}
+    </select>
+  </label>
+)}
 
             <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
               <h3 style={{ margin: 0 }}>Modifier la dépense</h3>
@@ -430,7 +517,10 @@ const styles = {
     justifyContent: "center",
     padding: 12,
     zIndex: 50,
+    maxHeight: "90vh",       // 👈 ne dépasse jamais l’écran
+    overflowY: "auto"      // 👈 scroll interne si trop grand
   },
+
   modal: {
     width: "100%",
     maxWidth: 520,
@@ -438,6 +528,8 @@ const styles = {
     borderRadius: 18,
     border: "1px solid #e5e7eb",
     padding: 14,
+    maxHeight: "90vh",       // 👈 ne dépasse jamais l’écran
+    overflowY: "auto"      // 👈 scroll interne si trop grand
   },
   btnPrimary: {
     padding: "10px 12px",

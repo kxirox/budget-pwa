@@ -1,7 +1,7 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { toISODate } from "../utils";
 
-export default function AddExpense({ categories, banks, accountTypes, onAdd }) {
+export default function AddExpense({ categories, banks, accountTypes, expenses = [], onAdd }) {
   const today = useMemo(() => toISODate(new Date()), []);
   const [amount, setAmount] = useState("");
   const [category, setCategory] = useState(categories[0] ?? "Autres");
@@ -10,6 +10,27 @@ export default function AddExpense({ categories, banks, accountTypes, onAdd }) {
   const [bank, setBank] = useState(banks[0] ?? "Physique");
   const [accountType, setAccountType] = useState(accountTypes[0] ?? "Compte courant");
   const [kind, setKind] = useState("expense");
+const expenseOptions = useMemo(() => {
+  return (Array.isArray(expenses) ? expenses : [])
+    .filter(e => e.kind === "expense")
+    .slice()
+    .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")))
+    .slice(0, 60);
+}, [expenses]);
+
+const [linkedExpenseId, setLinkedExpenseId] = useState(() => expenseOptions[0]?.id || "");
+
+useEffect(() => {
+  if (kind !== "reimbursement") return;
+  if (!linkedExpenseId && expenseOptions[0]?.id) setLinkedExpenseId(expenseOptions[0].id);
+  if (
+    linkedExpenseId &&
+    !expenseOptions.some(e => e.id === linkedExpenseId) &&
+    expenseOptions[0]?.id
+  ) {
+    setLinkedExpenseId(expenseOptions[0].id);
+  }
+}, [kind, linkedExpenseId, expenseOptions]);
  
 
 
@@ -20,8 +41,13 @@ export default function AddExpense({ categories, banks, accountTypes, onAdd }) {
       alert("Entre un montant valide (> 0).");
       return;
     }
+    if (kind === "reimbursement" && !linkedExpenseId) {
+      alert("Choisis une dépense à rembourser (ou crée d’abord la dépense).");
+      return;
+    }
     onAdd({
         kind,
+        linkedExpenseId: kind === "reimbursement" ? (linkedExpenseId || undefined) : undefined,
         amount: Math.round(a * 100) / 100,
         category,
         bank,
@@ -43,8 +69,27 @@ export default function AddExpense({ categories, banks, accountTypes, onAdd }) {
           <select value={kind} onChange={(e) => setKind(e.target.value)} style={styles.input}>
             <option value="expense">Dépense</option>
             <option value="income">Revenu</option>
+            <option value="reimbursement">Remboursement</option>
           </select>
         </label>
+
+{kind === "reimbursement" && (
+  <label style={styles.label}>
+    Dépense remboursée
+    <select value={linkedExpenseId} onChange={(e) => setLinkedExpenseId(e.target.value)} style={styles.input}>
+      {expenseOptions.length === 0 ? (
+        <option value="">Aucune dépense disponible</option>
+      ) : (
+        expenseOptions.map(ex => (
+          <option key={ex.id} value={ex.id}>
+            {ex.date} • {ex.category} • {Number(ex.amount || 0).toFixed(2)}€
+            {ex.note ? ` • ${ex.note}` : ""}
+          </option>
+        ))
+      )}
+    </select>
+  </label>
+)}
 
         <label style={styles.label}>
           Montant (€)

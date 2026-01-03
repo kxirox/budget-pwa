@@ -31,17 +31,29 @@ export function escapeCSV(value) {
 }
 
 export function toCSV(expenses) {
-  const header = ["date", "montant", "categorie", "banque", "type_compte", "note"];
+  // CSV "stable" + rétro-compatible :
+  // - colonne "montant" est SIGNÉE (dépense = négatif)
+  // - on ajoute "kind" + "linked_expense_id" pour gérer les remboursements
+  const header = ["date", "montant", "kind", "linked_expense_id", "categorie", "banque", "type_compte", "note"];
   const lines = [header.join(",")];
+
   for (const e of expenses) {
+    const amount = Number(e.amount || 0);
+    const signed =
+      e.kind === "expense" ? -Math.abs(amount)
+      : Math.abs(amount); // income + reimbursement = positif
+
     lines.push([
       escapeCSV(e.date),
-      escapeCSV(e.amount),
+      escapeCSV(Math.round(signed * 100) / 100),
+      escapeCSV(e.kind ?? ""),
+      escapeCSV(e.linkedExpenseId ?? ""),
       escapeCSV(e.category),
       escapeCSV(e.bank ?? ""),
       escapeCSV(e.accountType ?? ""),
       escapeCSV(e.note ?? "")
     ].join(","));
-}
+  }
+
   return lines.join("\n");
 }

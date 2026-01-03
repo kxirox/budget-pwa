@@ -87,6 +87,19 @@ const safeAccountTypes = Array.isArray(accountTypes) ? accountTypes : [];
 const safeCategories = Array.isArray(categories) ? categories : [];
 const safeExpenses = Array.isArray(expenses) ? expenses : [];
 
+  // ✅ Mode "comptable" : un remboursement est rattaché à la dépense d'origine
+  // et doit neutraliser la dépense même si le remboursement est hors période.
+  const reimburseByExpenseId = useMemo(() => {
+    const map = new Map(); // expenseId -> sum(reimbursements)
+    for (const e of safeExpenses) {
+      if (e?.kind !== "reimbursement") continue;
+      const id = e.linkedExpenseId;
+      if (!id) continue;
+      map.set(id, (map.get(id) || 0) + Number(e.amount || 0));
+    }
+    return map;
+  }, [safeExpenses]);
+
 
 
 
@@ -140,7 +153,7 @@ const safeExpenses = Array.isArray(expenses) ? expenses : [];
       const g = getGroupKey(e);
       if (scope !== "total" && selectedKey !== "ALL" && g !== selectedKey) continue;
 
-      const signed = e.kind === "income" ? Number(e.amount || 0) : -Number(e.amount || 0);
+      const signed = (e.kind === "income" || e.kind === "reimbursement") ? Number(e.amount || 0) : -Number(e.amount || 0);
 
       if (!byDay.has(d)) byDay.set(d, new Map());
       const m = byDay.get(d);
@@ -219,7 +232,7 @@ const safeExpenses = Array.isArray(expenses) ? expenses : [];
       const d = String(e.date || "").trim();
       if (!d) continue;
 
-      const signed = e.kind === "income" ? Number(e.amount || 0) : -Number(e.amount || 0);
+      const signed = (e.kind === "income" || e.kind === "reimbursement") ? Number(e.amount || 0) : -Number(e.amount || 0);
       byDay.set(d, (byDay.get(d) || 0) + signed);
     }
 
@@ -244,36 +257,41 @@ const safeExpenses = Array.isArray(expenses) ? expenses : [];
 
   
   // calcul des deux dataset
-  const expenseData = useMemo(() => {
-    const map = new Map(safeCategories.map(c => [c, 0]));
+const expenseData = useMemo(() => {
+  const map = new Map(safeCategories.map(c => [c, 0]));
 
-    for (const e of statsFiltered) {
-      if (e.kind !== "expense") continue;
-      const cat = String(e.category || "Autres").trim() || "Autres";
-      map.set(cat, (map.get(cat) || 0) + Number(e.amount || 0));
-    }
+  for (const e of statsFiltered) {
+    if (e.kind !== "expense") continue;
+    const cat = String(e.category || "Autres").trim() || "Autres";
+    const gross = Number(e.amount || 0);
+    // ✅ comptable : on neutralise avec tous les remboursements liés (même hors période)
+    const reimb = reimburseByExpenseId.get(e.id) || 0;
+    const net = Math.max(0, gross - reimb);
+    map.set(cat, (map.get(cat) || 0) + net);
+  }
 
-    return Array.from(map.entries())
-      .map(([name, value]) => ({ name, value: Math.round(value * 100) / 100 }))
-      .filter(d => d.value > 0)
-      .sort((a, b) => b.value - a.value);
-  }, [statsFiltered, safeCategories]);
+  return Array.from(map.entries())
+    .map(([name, value]) => ({ name, value: Math.round(value * 100) / 100 }))
+    .filter(d => d.value > 0)
+    .sort((a, b) => b.value - a.value);
+}, [statsFiltered, safeCategories, reimburseByExpenseId]);
 
-  const incomeData = useMemo(() => {
-    const map = new Map(safeCategories.map(c => [c, 0]));
+const incomeData = useMemo(() => {
+  const map = new Map(safeCategories.map(c => [c, 0]));
 
-    for (const e of statsFiltered) {
-      if (e.kind !== "income") continue;
-      const cat = String(e.category || "Autres").trim() || "Autres";
-      map.set(cat, (map.get(cat) || 0) + Number(e.amount || 0));
-    }
+  for (const e of statsFiltered) {
+    if (e.kind !== "income") continue;
+    const cat = String(e.category || "Autres").trim() || "Autres";
+    map.set(cat, (map.get(cat) || 0) + Number(e.amount || 0));
+  }
 
-    return Array.from(map.entries())
-      .map(([name, value]) => ({ name, value: Math.round(value * 100) / 100 }))
-      .filter(d => d.value > 0)
-      .sort((a, b) => b.value - a.value);
-  }, [statsFiltered, safeCategories]);
+  return Array.from(map.entries())
+    .map(([name, value]) => ({ name, value: Math.round(value * 100) / 100 }))
+    .filter(d => d.value > 0)
+    .sort((a, b) => b.value - a.value);
+}, [statsFiltered, safeCategories]);
   // fin des blocs de calcul  
+
 
 
 
@@ -284,6 +302,11 @@ const safeExpenses = Array.isArray(expenses) ? expenses : [];
 
   const expenseTotal = useMemo(() => expenseData.reduce((s, d) => s + d.value, 0), [expenseData]);
   const incomeTotal = useMemo(() => incomeData.reduce((s, d) => s + d.value, 0), [incomeData]);
+  const reimbursementTotal = useMemo(() => {
+    return statsFiltered
+      .filter(e => e.kind === "reimbursement")
+      .reduce((s, e) => s + Number(e.amount || 0), 0);
+  }, [statsFiltered]);
 
 
 
@@ -374,10 +397,13 @@ const safeExpenses = Array.isArray(expenses) ? expenses : [];
 
 
           <div style={styles.big}>
-            Dépenses (filtre): <span style={{ fontWeight: 900 }}>{formatEUR(expenseTotal)}</span>
+            Dépenses net (filtre): <span style={{ fontWeight: 900 }}>{formatEUR(expenseTotal)}</span>
           </div>
           <div style={styles.big}>
             Revenus (filtre): <span style={{ fontWeight: 900 }}>{formatEUR(incomeTotal)}</span>
+          </div>
+          <div style={styles.big}>
+            Remboursements (filtre): <span style={{ fontWeight: 900 }}>{formatEUR(reimbursementTotal)}</span>
           </div>
 
 

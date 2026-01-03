@@ -86,9 +86,26 @@ export function parseExpensesCSV(text, { defaultBank, defaultAccountType } = {})
       defaultAccountType ||
       "Compte courant";
 
-    const raw = parseAmount(amountRaw); // peut être négatif
-    const kind = raw >= 0 ? "income" : "expense";
-    const amount = Math.abs(raw);
+    const kindRaw = String(pick(obj, "kind", "type", "operation_type", "type_operation") || "").trim().toLowerCase();
+const linkedExpenseId = String(
+  pick(obj, "linked_expense_id", "linkedexpenseid", "expense_id", "depense_id", "linked_to") || ""
+).trim() || undefined;
+
+const raw = parseAmount(amountRaw); // peut être négatif (rétro-compat)
+let kind = "";
+if (["expense", "income", "reimbursement"].includes(kindRaw)) {
+  kind = kindRaw;
+} else if (["depense", "dépense"].includes(kindRaw)) {
+  kind = "expense";
+} else if (["revenu", "income"].includes(kindRaw)) {
+  kind = "income";
+} else if (["remboursement", "remboursements", "refund"].includes(kindRaw)) {
+  kind = "reimbursement";
+} else {
+  kind = raw >= 0 ? "income" : "expense";
+}
+
+const amount = Math.abs(raw);
 
 
 
@@ -117,6 +134,7 @@ export function parseExpensesCSV(text, { defaultBank, defaultAccountType } = {})
       id: uid(),
       date,
       kind,
+      linkedExpenseId,
       amount: Math.round(amount * 100) / 100,
       category: safeCategory,
       bank: cleanBank,

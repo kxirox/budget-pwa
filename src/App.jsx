@@ -181,14 +181,32 @@ export default function App() {
       bank: payload.bank,
       accountType: payload.accountType,
       date: payload.date,
-      note: payload.note ?? ""
+      note: payload.note ?? "",
+      linkedExpenseId: payload.linkedExpenseId || undefined
     };
 
     setExpenses(prev => [e, ...prev]);
     setTab("list");
   }
 
-  function deleteExpense(id) {
+  
+function createReimbursement({ linkedExpenseId, amount, date, bank, accountType, note }) {
+  const e = {
+    id: uid(),
+    kind: "reimbursement",
+    linkedExpenseId,
+    amount: Math.abs(amount),
+    category: "Autres",
+    bank: bank ?? "Physique",
+    accountType: accountType ?? "Compte courant",
+    date,
+    note: note ?? ""
+  };
+  setExpenses(prev => [e, ...prev]);
+  setTab("list");
+}
+
+function deleteExpense(id) {
     if (!confirm("Supprimer cette dépense ?")) return;
     setExpenses(prev => prev.filter(e => e.id !== id));
   }
@@ -215,6 +233,7 @@ function updateExpense(id, patch) {
           categories={safeCategories}
           banks={DEFAULT_BANKS}
           accountTypes={DEFAULT_ACCOUNT_TYPES}
+          expenses={expenses}
           onAdd={addExpense}
         />
       )}
@@ -229,6 +248,7 @@ function updateExpense(id, patch) {
           onDelete={deleteExpense}
           onUpdate={updateExpense}
           onImport={(rows) => setExpenses(prev => [...rows, ...prev])}
+          onCreateReimbursement={createReimbursement}
           onOpenWipeModal={() => setShowWipeModal(true)}
         />
       )}
