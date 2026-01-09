@@ -358,7 +358,7 @@ function saveEdit() {
   onUpdate(editingId, updated);
   closeEdit();
 }
-
+  
 
   return (
     <div style={{ padding: 12, display: "grid", gap: 12 }}>
