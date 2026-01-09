@@ -1,7 +1,9 @@
 import React, { useMemo, useState } from "react";
 import { currentMonthKey, formatEUR, monthLabelFR, toCSV, toISODate } from "../utils";
 import { parseExpensesCSV } from "../importCsv";
+import { parseCreditMutuelWorkbook } from "../importCreditMutuel";
 
+import ImportCreditMutuel from "./ImportCreditMutuel";
 
 
 export default function ExpenseList({ expenses, categories, banks, accountTypes, people = [], onDelete, onUpdate, onImport, onCreateReimbursement, onOpenWipeModal }) {
@@ -13,6 +15,12 @@ export default function ExpenseList({ expenses, categories, banks, accountTypes,
   const [mode, setMode] = useState("month"); // "month" | "range"
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+
+  // Import Crédit Mutuel (Excel)
+  const [cmBank, setCmBank] = useState(() => (banks?.includes("Crédit Mutuel") ? "Crédit Mutuel" : (banks?.[0] ?? "Crédit Mutuel")));
+  const [cmAccountType, setCmAccountType] = useState(() => (accountTypes?.[0] ?? "Compte courant"));
+  const [cmDefaultCategory, setCmDefaultCategory] = useState(() => (categories?.includes("Autres") ? "Autres" : (categories?.[0] ?? "Autres")));
+  const [cmLastInfo, setCmLastInfo] = useState("");
 
   // Helper pour ajuster la taille de l'application a un mobile
   const isMobile = typeof window !== "undefined" && window.innerWidth < 700;
@@ -158,6 +166,75 @@ const totals = useMemo(() => {
     reader.readAsText(file, "utf-8");
   }
 
+  function signatureFor(e) {
+    const date = String(e.date || "").trim();
+    const kind = String(e.kind || "").trim();
+    const amount = Number(e.amount || 0);
+    const note = String(e.note || "").trim().toLowerCase();
+    return `${date}|${kind}|${amount}|${note}`;
+  }
+
+  function importCreditMutuelFile(file) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const buf = reader.result;
+        const { rows, errors, meta } = parseCreditMutuelWorkbook(buf, {
+          defaultBank: cmBank,
+          defaultAccountType: cmAccountType,
+          defaultCategory: cmDefaultCategory
+        });
+
+        if (errors?.length) {
+          alert(
+            "Erreurs lors de la lecture Crédit Mutuel :\n\n" +
+              errors.slice(0, 12).join("\n") +
+              (errors.length > 12 ? "\n..." : "")
+          );
+          return;
+        }
+        if (!rows || rows.length === 0) {
+          alert("Aucune transaction détectée dans ce fichier.");
+          return;
+        }
+
+        // Anti-doublons : date + kind + amount + note
+        const existing = new Set(expenses.map(signatureFor));
+        const unique = [];
+        let skipped = 0;
+        for (const r of rows) {
+          const sig = signatureFor(r);
+          if (existing.has(sig)) {
+            skipped++;
+          } else {
+            existing.add(sig);
+            unique.push(r);
+          }
+        }
+
+        setCmLastInfo(
+          `Onglet détecté : ${meta?.sheetName || "?"} • ${rows.length} ligne(s) • ${unique.length} à importer • ${skipped} doublon(s)`
+        );
+
+        if (unique.length === 0) {
+          alert("Toutes les transactions semblent déjà présentes (doublons). ✅");
+          return;
+        }
+
+        const ok = confirm(
+          `Crédit Mutuel : ${unique.length} transaction(s) à importer (doublons ignorés : ${skipped}).\n\nContinuer ?`
+        );
+        if (!ok) return;
+
+        onImport(unique);
+        alert("Import Crédit Mutuel terminé ✅");
+      } catch (e) {
+        console.error(e);
+        alert("Erreur inattendue pendant l'import Crédit Mutuel.");
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
 
 
   // ---- EDIT MODE ----
@@ -168,6 +245,13 @@ const totals = useMemo(() => {
   const [editKind, setEditKind] = useState("expense");
   const [editLinkedExpenseId, setEditLinkedExpenseId] = useState("");
   const [editBank, setEditBank] = useState(banks?.[0] ?? "Physique");
+  
+  // Pour gerer la modification des virements internes
+  const [editOriginal, setEditOriginal] = useState(null);
+  const [editDestBank, setEditDestBank] = useState(banks?.[0] ?? "Physique");
+  const [editDestAccountType, setEditDestAccountType] = useState(accountTypes?.[0] ?? "Compte courant");
+  
+
   const [editAccountType, setEditAccountType] = useState(accountTypes?.[0] ?? "Compte courant");
   const [editDate, setEditDate] = useState(new Date().toISOString().slice(0, 10));
   const [editNote, setEditNote] = useState("");
@@ -187,6 +271,17 @@ const totals = useMemo(() => {
     setEditPerson(e.person ?? "");
     setEditKind(e.kind ?? "expense");
     setEditLinkedExpenseId(e.linkedExpenseId ?? "");
+    setEditOriginal(e);
+
+    // gestion de l'édition des virements internes
+    // Destination par défaut : si possible différent du compte source
+    setEditDestBank(
+      (banks || []).find((b) => b !== (e.bank ?? banks?.[0])) ?? (banks?.[0] ?? "Physique")
+    );
+    setEditDestAccountType(
+      (accountTypes || []).find((t) => t !== (e.accountType ?? accountTypes?.[0])) ?? (accountTypes?.[0] ?? "Compte courant")
+    );
+
 
   }
 
@@ -194,25 +289,75 @@ const totals = useMemo(() => {
     setEditingId(null);
   }
 
-  function saveEdit() {
-    const a = Number(String(editAmount).replace(",", "."));
-    if (!Number.isFinite(a) || a <= 0) {
-      alert("Montant invalide.");
-      return;
-    }    
-    onUpdate(editingId, {
-      kind: editKind,
-      linkedExpenseId: editKind === "reimbursement" ? (editLinkedExpenseId || undefined) : undefined,
-      amount: Math.round(a * 100) / 100,
-      category: editCategory,
-      bank: editBank,
-      accountType: editAccountType,
-      date: editDate,
-      note: editNote.trim(),
-      person: String(editPerson || "").trim()
-    });
-    closeEdit();
+function makeId() {
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function saveEdit() {
+  const a = Number(String(editAmount).replace(",", "."));
+  if (!Number.isFinite(a) || a <= 0) {
+    alert("Montant invalide.");
+    return;
   }
+
+  const updated = {
+    kind: editKind,
+    linkedExpenseId: editKind === "reimbursement" ? (editLinkedExpenseId || undefined) : undefined,
+    amount: Math.round(a * 100) / 100,
+    category: editCategory,
+    bank: editBank,
+    accountType: editAccountType,
+    date: editDate,
+    note: editNote.trim(),
+    person: String(editPerson || "").trim()
+  };
+
+  // ✅ V2: conversion en virement interne => création automatique de l'opération miroir
+  const wasTransfer =
+    editOriginal && (editOriginal.kind === "transfer_in" || editOriginal.kind === "transfer_out");
+  const becomesTransferOut = editKind === "transfer_out";
+
+  if (becomesTransferOut && !wasTransfer) {
+    // Empêche "destination = source"
+    if (editDestBank === editBank && editDestAccountType === editAccountType) {
+      alert("Le compte destination doit être différent du compte source.");
+      return;
+    }
+
+    const transferId = makeId();
+
+    // 1) Update la ligne actuelle en transfer_out
+    onUpdate(editingId, {
+      ...updated,
+      kind: "transfer_out",
+      transferId
+    });
+
+    // 2) Crée la ligne miroir transfer_in sur le compte destination
+    const mirror = {
+      id: makeId(),
+      kind: "transfer_in",
+      transferId,
+      amount: updated.amount,
+      category: updated.category, // tu peux aussi mettre "Virement" si tu préfères
+      bank: editDestBank,
+      accountType: editDestAccountType,
+      date: updated.date,
+      note: updated.note ? `Virement interne: ${updated.note}` : "Virement interne",
+      person: updated.person
+    };
+
+    // onImport accepte déjà un tableau de lignes dans ton composant (utilisé pour les imports CSV/CM)
+    onImport([mirror]);
+
+    closeEdit();
+    return;
+  }
+
+  // Comportement normal (pas conversion en virement interne)
+  onUpdate(editingId, updated);
+  closeEdit();
+}
 
 
   return (
@@ -317,6 +462,59 @@ const totals = useMemo(() => {
                 }}
                 />
             </label>
+
+            <div style={{ width: "100%", height: 1, background: "rgba(0,0,0,0.06)", margin: "4px 0" }} />
+
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <label style={{ ...styles.label, minWidth: 180 }}>
+                Banque (import)
+                <select value={cmBank} onChange={(e) => setCmBank(e.target.value)} style={styles.input}>
+                  {(banks || ["Crédit Mutuel"]).map((b) => (
+                    <option key={b} value={b}>
+                      {b}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label style={{ ...styles.label, minWidth: 180 }}>
+                Type de compte (import)
+                <select value={cmAccountType} onChange={(e) => setCmAccountType(e.target.value)} style={styles.input}>
+                  {(accountTypes || ["Compte courant"]).map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label style={{ ...styles.label, minWidth: 180 }}>
+                Catégorie par défaut
+                <select value={cmDefaultCategory} onChange={(e) => setCmDefaultCategory(e.target.value)} style={styles.input}>
+                  {(categories || ["Autres"]).map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label style={styles.btnSecondary}>
+                Importer Crédit Mutuel (Excel)
+                <input
+                  type="file"
+                  accept=".xls,.xlsx,.xlsm,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                  style={{ display: "none" }}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) importCreditMutuelFile(f);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+
+              {cmLastInfo ? <div style={{ ...styles.muted, fontSize: 12 }}>{cmLastInfo}</div> : null}
+            </div>
             </div>
 
           
@@ -379,9 +577,8 @@ const totals = useMemo(() => {
     Remb.
   </button>
 )}
-                {(e.kind !== "transfer_in" && e.kind !== "transfer_out") && (
-                  <button onClick={() => openEdit(e)} style={styles.btnEdit}>Éditer</button>
-                )}
+                <button onClick={() => openEdit(e)} style={styles.btnEdit}>Éditer</button>
+
                 <button onClick={() => onDelete(e.id)} style={styles.btnDanger}>Suppr.</button>
               </div>
             </div>
@@ -394,20 +591,45 @@ const totals = useMemo(() => {
         <div style={styles.modalBackdrop} onClick={closeEdit}>
           <div style={styles.modal} onClick={(ev) => ev.stopPropagation()}>
  
-            <label style={styles.label}>
-              Type
-              {(editKind === "transfer_in" || editKind === "transfer_out") ? (
-                <div style={{ ...styles.input, display: "flex", alignItems: "center", background: "#f9fafb" }}>
-                  Virement interne (non modifiable)
-                </div>
-              ) : (
-                <select value={editKind} onChange={(e) => setEditKind(e.target.value)} style={styles.input}>
-                  <option value="expense">Dépense</option>
-                  <option value="income">Revenu</option>
-                  <option value="reimbursement">Remboursement</option>
-                </select>
-              )}
-            </label>
+          <label style={styles.label}>
+            Type
+            <select value={editKind} onChange={(e) => setEditKind(e.target.value)} style={styles.input}>
+              <option value="expense">Dépense</option>
+              <option value="income">Revenu</option>
+              <option value="reimbursement">Remboursement</option>
+              <option value="transfer_out">Virement interne</option>
+            </select>
+          </label>
+
+{editKind === "transfer_out" && (
+  <>
+    <label style={styles.label}>
+      Compte destination (Banque)
+      <select value={editDestBank} onChange={(e) => setEditDestBank(e.target.value)} style={styles.input}>
+        {(banks || []).map((b) => (
+          <option key={b} value={b}>{b}</option>
+        ))}
+      </select>
+    </label>
+
+    <label style={styles.label}>
+      Compte destination (Type)
+      <select value={editDestAccountType} onChange={(e) => setEditDestAccountType(e.target.value)} style={styles.input}>
+        {(accountTypes || []).map((t) => (
+          <option key={t} value={t}>{t}</option>
+        ))}
+      </select>
+    </label>
+
+    <div style={{ fontSize: 12, opacity: 0.8, marginTop: -6 }}>
+      L’opération miroir (entrée) sera créée automatiquement sur le compte destination.
+    </div>
+  </>
+)}
+
+
+
+
 
 {editKind === "reimbursement" && (() => {
   const expenseChoices = expenses

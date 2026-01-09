@@ -9,11 +9,8 @@
     "lint": "eslint .",
     "preview": "vite preview"
   },
-  "dependencies": {
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0",
-    "recharts": "^3.6.0"
-  },
+
+
   "devDependencies": {
     "@eslint/js": "^9.39.1",
     "@types/react": "^19.2.5",
@@ -28,5 +25,15 @@
   },
   "overrides": {
     "vite": "npm:rolldown-vite@7.2.5"
+  },
+
+  "dependencies": {
+  "react": "^18.2.0",
+  "react-dom": "^18.2.0",
+  "recharts": "^2.12.2"
   }
+
+
+  
+	
 }

@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect } from "react";
-import { PieChart, Pie, Tooltip, Legend, ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Cell } from "recharts";
+import { PieChart, Pie, Tooltip, ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Cell } from "recharts";
 import { currentMonthKey, formatEUR, monthLabelFR } from "../utils";
 
 
@@ -25,8 +25,37 @@ export default function Stats({
   const isMobile = typeof window !== "undefined" && window.innerWidth < 700;
   const MAX_ROWS = isMobile ? 8 : 12;
 
-  // Legend component for PieChart
-  function LegendList({ items, categoryColors }) {
+  // Couleurs fallback (si une catégorie n'a pas encore de couleur enregistrée)
+  // Objectif: garder des couleurs lisibles au lieu de tout griser.
+  const fallbackPalette = [
+    "#2563eb", // bleu
+    "#16a34a", // vert
+    "#f97316", // orange
+    "#a855f7", // violet
+    "#06b6d4", // cyan
+    "#e11d48", // rose/rouge
+    "#84cc16", // lime
+    "#f59e0b", // ambre
+    "#0ea5e9", // bleu clair
+    "#14b8a6"  // teal
+  ];
+
+  const stableColorFor = (name, index = 0) => {
+    const n = String(name || "");
+    // petit hash stable
+    let h = 0;
+    for (let i = 0; i < n.length; i++) h = (h * 31 + n.charCodeAt(i)) >>> 0;
+    const idx = (h + index) % fallbackPalette.length;
+    return fallbackPalette[idx];
+  };
+
+  const colorForCategory = (name, index = 0) => {
+    const c = categoryColors?.[name];
+    return c || stableColorFor(name, index);
+  };
+
+  // Légende détaillée sous le camembert
+  function LegendList({ items }) {
     if (!items?.length) return null;
 
     return (
@@ -39,7 +68,7 @@ export default function Stats({
           overflow: "auto"
         }}
       >
-        {items.slice(0, MAX_ROWS).map((d) => (
+        {items.slice(0, MAX_ROWS).map((d, idx) => (
           <div key={d.name} style={styles.legendRow}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
               <span
@@ -47,7 +76,7 @@ export default function Stats({
                   width: 10,
                   height: 10,
                   borderRadius: 999,
-                  background: categoryColors?.[d.name] || "#6b7280",
+                  background: colorForCategory(d.name, idx),
                   flex: "0 0 auto"
                 }}
               />
@@ -426,27 +455,29 @@ const incomeData = useMemo(() => {
             Pas de dépenses pour ce filtre.
           </div>
         ) : (
-          <div style={{ width: "100%", height: 320 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  dataKey="value"
-                  data={expenseData}
-                  label={!isMobile}
-                  labelLine={!isMobile}
-                  isAnimationActive={!isMobile}
-                >
-                  {expenseData.map((entry) => (
-                    <Cell key={entry.name} fill={categoryColors?.[entry.name] || "#6b7280"} />
-                  ))}
-                </Pie>
+          <div style={{ width: "100%" }}>
+            <div style={{ width: "100%", height: 320 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    dataKey="value"
+                    data={expenseData}
+                    label={!isMobile}
+                    labelLine={!isMobile}
+                    isAnimationActive={!isMobile}
+                  >
+                    {expenseData.map((entry, idx) => (
+                      <Cell key={entry.name} fill={colorForCategory(entry.name, idx)} />
+                    ))}
+                  </Pie>
 
-                <Tooltip formatter={(v) => formatEUR(v)} />
-                {!isMobile && <Legend />}
-              </PieChart>
-            </ResponsiveContainer>
-            {isMobile && <LegendList items={expenseData} categoryColors={categoryColors} />}
+                  <Tooltip formatter={(v) => formatEUR(v)} />
+                  {/* Légende Recharts masquée : liste détaillée ci-dessous */}
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
 
+            <LegendList items={expenseData} />
           </div>
         )}
       </div>
@@ -461,28 +492,29 @@ const incomeData = useMemo(() => {
             Pas de revenus pour ce filtre.
           </div>
         ) : (
-          <div style={{ width: "100%", height: 320 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  dataKey="value"
-                  data={incomeData}
-                  label={!isMobile}
-                  labelLine={!isMobile}
-                  isAnimationActive={!isMobile}
-                >
-                  {incomeData.map((entry) => (
-                    <Cell key={entry.name} fill={categoryColors?.[entry.name] || "#6b7280"} />
-                  ))}
-                </Pie>
+          <div style={{ width: "100%" }}>
+            <div style={{ width: "100%", height: 320 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    dataKey="value"
+                    data={incomeData}
+                    label={!isMobile}
+                    labelLine={!isMobile}
+                    isAnimationActive={!isMobile}
+                  >
+                    {incomeData.map((entry, idx) => (
+                      <Cell key={entry.name} fill={colorForCategory(entry.name, idx)} />
+                    ))}
+                  </Pie>
 
-                <Tooltip formatter={(v) => formatEUR(v)} />
-                {!isMobile && <Legend />}
-              </PieChart>
-            </ResponsiveContainer>
+                  <Tooltip formatter={(v) => formatEUR(v)} />
+                  {/* Légende Recharts masquée : liste détaillée ci-dessous */}
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
 
-            {isMobile && <LegendList items={incomeData} categoryColors={categoryColors} />}
-
+            <LegendList items={incomeData} />
           </div>
         )}
       </div>
@@ -565,7 +597,7 @@ const styles = {
 
   legendRow: {
     display: "flex",
-    alignItems: "center",
+    alignItems: "flex-start",
     justifyContent: "space-between",
     gap: 10,
     padding: "8px 2px"
@@ -574,15 +606,20 @@ const styles = {
     fontWeight: 800,
     fontSize: 13,
     color: "#111827",
-    maxWidth: "70%",
+    // ⬇️ rend le nom lisible (surtout sur mobile) : 2 lignes max
+    flex: "1 1 auto",
+    minWidth: 0,
     overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap"
+    display: "-webkit-box",
+    WebkitLineClamp: 2,
+    WebkitBoxOrient: "vertical"
   },
   legendValue: {
     fontWeight: 900,
     fontSize: 13,
-    color: "#111827"
+    color: "#111827",
+    whiteSpace: "nowrap",
+    flex: "0 0 auto"
   },
 
 };
