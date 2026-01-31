@@ -6,6 +6,7 @@ import { currentMonthKey, formatEUR, monthLabelFR } from "../utils";
 export default function Stats({ 
   expenses = [],
   categories = [],
+  subcategoriesMap = {},
   banks = [],
   accountTypes = [],
   categoryColors = {},
@@ -18,6 +19,9 @@ export default function Stats({
   const [to, setTo] = useState("");
   const [scope, setScope] = useState("total"); // "total" | "bank" | "type"
   const [selectedKey, setSelectedKey] = useState("ALL"); // ALL ou une banque/un type
+
+  // Sous-categories : camembert par sous-categorie pour une categorie parente
+  const [subcatCategory, setSubcatCategory] = useState(() => (Array.isArray(categories) && categories[0]) ? categories[0] : "Autres");
 
 
 
@@ -115,6 +119,12 @@ const safeBanks = Array.isArray(banks) ? banks : [];
 const safeAccountTypes = Array.isArray(accountTypes) ? accountTypes : [];
 const safeCategories = Array.isArray(categories) ? categories : [];
 const safeExpenses = Array.isArray(expenses) ? expenses : [];
+
+// Garde la categorie selectionnee pour les sous-categories valide
+useEffect(() => {
+  if (!safeCategories.length) return;
+  if (!safeCategories.includes(subcatCategory)) setSubcatCategory(safeCategories[0]);
+}, [safeCategories.join("|"), subcatCategory]);
 
   // ✅ Mode "comptable" : un remboursement est rattaché à la dépense d'origine
   // et doit neutraliser la dépense même si le remboursement est hors période.
@@ -323,6 +333,31 @@ const incomeData = useMemo(() => {
     .filter(d => d.value > 0)
     .sort((a, b) => b.value - a.value);
 }, [statsFiltered, safeCategories]);
+
+// Camembert des sous-categories pour la categorie selectionnee
+const subcatData = useMemo(() => {
+  const labelEmpty = "(Sans sous-categorie)";
+  const map = new Map();
+
+  for (const e of statsFiltered) {
+    if (e.kind !== "expense") continue;
+    const cat = String(e.category || "Autres").trim() || "Autres";
+    if (cat !== subcatCategory) continue;
+    const sub = String(e.subcategory || "").trim() || labelEmpty;
+
+    const gross = Number(e.amount || 0);
+    const reimb = reimburseByExpenseId.get(e.id) || 0;
+    const net = Math.max(0, gross - reimb);
+    if (net <= 0) continue;
+
+    map.set(sub, (map.get(sub) || 0) + net);
+  }
+
+  return Array.from(map.entries())
+    .map(([name, value]) => ({ name, value: Math.round(value * 100) / 100 }))
+    .filter((d) => d.value > 0)
+    .sort((a, b) => b.value - a.value);
+}, [statsFiltered, subcatCategory, reimburseByExpenseId]);
   // fin des blocs de calcul  
 
 
@@ -478,6 +513,50 @@ const incomeData = useMemo(() => {
             </div>
 
             <LegendList items={expenseData} />
+          </div>
+        )}
+      </div>
+
+      <div style={styles.card}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+          <h3 style={{ margin: 0 }}>Dépenses par sous-catégorie</h3>
+          <label style={{ ...styles.label, minWidth: 220 }}>
+            Catégorie
+            <select value={subcatCategory} onChange={(e) => setSubcatCategory(e.target.value)} style={styles.input}>
+              {safeCategories.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        {subcatData.length === 0 ? (
+          <div style={{ color: '#6b7280', textAlign: 'center', padding: 24 }}>
+            Pas de dépenses (ou pas de sous-catégorie renseignée) pour ce filtre.
+          </div>
+        ) : (
+          <div style={{ width: '100%' }}>
+            <div style={{ width: '100%', height: 320 }}>
+              <ResponsiveContainer width='100%' height='100%'>
+                <PieChart>
+                  <Pie
+                    dataKey='value'
+                    data={subcatData}
+                    label={!isMobile}
+                    labelLine={!isMobile}
+                    isAnimationActive={!isMobile}
+                  >
+                    {subcatData.map((entry, idx) => (
+                      <Cell key={entry.name} fill={stableColorFor(entry.name, idx)} />
+                    ))}
+                  </Pie>
+
+                  <Tooltip formatter={(v) => formatEUR(v)} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+
+            <LegendList items={subcatData} />
           </div>
         )}
       </div>

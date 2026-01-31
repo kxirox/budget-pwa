@@ -34,7 +34,8 @@ export function toCSV(expenses) {
   // CSV "stable" + rétro-compatible :
   // - colonne "montant" est SIGNÉE (dépense = négatif)
   // - on ajoute "kind" + "linked_expense_id" pour gérer les remboursements
-  const header = ["date", "montant", "kind", "linked_expense_id", "categorie", "banque", "type_compte", "note", "personne"];
+  // - on ajoute "sous_categorie" (optionnel) : les anciens CSV restent importables
+  const header = ["date", "montant", "kind", "linked_expense_id", "categorie", "sous_categorie", "banque", "type_compte", "note", "personne"];
   const lines = [header.join(",")];
 
   for (const e of expenses) {
@@ -50,6 +51,7 @@ export function toCSV(expenses) {
       escapeCSV(e.kind ?? ""),
       escapeCSV(e.linkedExpenseId ?? ""),
       escapeCSV(e.category),
+      escapeCSV(e.subcategory ?? ""),
       escapeCSV(e.bank ?? ""),
       escapeCSV(e.accountType ?? ""),
       escapeCSV(e.note ?? ""),

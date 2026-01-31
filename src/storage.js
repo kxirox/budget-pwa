@@ -3,6 +3,9 @@ const CATEGORIES_KEY = "budget_pwa_categories_v1";
 const KEY_CATEGORY_COLORS = "budget.categoryColors.v1";
 const KEY_PEOPLE = "budget.people.v1";
 const KEY_AUTOCAT_RULES = "budget.autocatRules.v1";
+// { [categoryName]: string[] }
+// Exemple: { "Transport": ["Train", "Essence"] }
+const KEY_SUBCATEGORIES = "budget.subcategories.v1";
 
 const KEY_BANKS = "budgetpwa_banks";
 const KEY_ACCOUNT_TYPES = "budgetpwa_account_types";
@@ -140,7 +143,9 @@ export function loadExpenses() {
       amount,
       person: typeof e.person === "string" ? e.person : (e.person == null ? "" : String(e.person)),
       bank: e.bank ?? "Physique",
-      accountType: e.accountType ?? "Compte courant"
+      accountType: e.accountType ?? "Compte courant",
+      // Nouveau champ optionnel (rétro-compatible)
+      subcategory: typeof e.subcategory === "string" ? e.subcategory : (e.subcategory == null ? "" : String(e.subcategory))
   };
 });
 
@@ -148,6 +153,35 @@ export function loadExpenses() {
 
 
 
+}
+
+export function loadSubcategories() {
+  try {
+    const raw = localStorage.getItem(KEY_SUBCATEGORIES);
+    const obj = raw ? JSON.parse(raw) : {};
+    if (!obj || typeof obj !== "object") return {};
+
+    const out = {};
+    for (const [cat, arr] of Object.entries(obj)) {
+      if (!Array.isArray(arr)) continue;
+      const cleanCat = String(cat || "").trim();
+      if (!cleanCat) continue;
+      const cleanArr = Array.from(
+        new Set(arr.map((s) => String(s || "").trim()).filter(Boolean))
+      );
+      out[cleanCat] = cleanArr;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+export function saveSubcategories(map) {
+  try {
+    const obj = map && typeof map === "object" ? map : {};
+    localStorage.setItem(KEY_SUBCATEGORIES, JSON.stringify(obj));
+  } catch {}
 }
 
 export function loadPeople() {

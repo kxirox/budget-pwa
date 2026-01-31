@@ -1,12 +1,14 @@
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { currentMonthKey, formatEUR, monthLabelFR, toCSV, toISODate } from "../utils";
 import { parseExpensesCSV } from "../importCsv";
 import { parseCreditMutuelWorkbook } from "../importCreditMutuel";
 
-import ImportCreditMutuel from "./ImportCreditMutuel";
+// A SUPPRIMER SI PAS DE BUG LORS DU RUN
+// import ImportCreditMutuel from "./ImportCreditMutuel";
 
 
-export default function ExpenseList({ expenses, categories, banks, accountTypes, people = [], onDelete, onUpdate, onImport, onCreateReimbursement, onOpenWipeModal }) {
+export default function ExpenseList({ expenses, categories, subcategoriesMap = {}, banks, accountTypes, people = [], onDelete, onUpdate, onImport, onCreateReimbursement, onOpenWipeModal }) {
   const [month, setMonth] = useState("ALL");
   const [cat, setCat] = useState("Toutes");
   const [bankFilter, setBankFilter] = useState("Toutes");
@@ -242,6 +244,7 @@ const totals = useMemo(() => {
   const editing = useMemo(() => filtered.find(e => e.id === editingId) ?? null, [filtered, editingId]);
   const [editAmount, setEditAmount] = useState("");
   const [editCategory, setEditCategory] = useState(categories[0] ?? "Autres");
+  const [editSubcategory, setEditSubcategory] = useState("");
   const [editKind, setEditKind] = useState("expense");
   const [editLinkedExpenseId, setEditLinkedExpenseId] = useState("");
   const [editBank, setEditBank] = useState(banks?.[0] ?? "Physique");
@@ -264,6 +267,7 @@ const totals = useMemo(() => {
     setEditingId(e.id);
     setEditAmount(String(e.amount ?? ""));
     setEditCategory(e.category ?? (categories[0] ?? "Autres"));
+    setEditSubcategory(e.subcategory ?? "");
     setEditBank(e.bank ?? (banks?.[0] ?? "Physique"));
     setEditAccountType(e.accountType ?? (accountTypes?.[0] ?? "Compte courant"));
     setEditDate(e.date ?? new Date().toISOString().slice(0, 10));
@@ -305,6 +309,7 @@ function saveEdit() {
     linkedExpenseId: editKind === "reimbursement" ? (editLinkedExpenseId || undefined) : undefined,
     amount: Math.round(a * 100) / 100,
     category: editCategory,
+    subcategory: String(editSubcategory || "").trim(),
     bank: editBank,
     accountType: editAccountType,
     date: editDate,
@@ -340,6 +345,7 @@ function saveEdit() {
       transferId,
       amount: updated.amount,
       category: updated.category, // tu peux aussi mettre "Virement" si tu préfères
+      subcategory: updated.subcategory || "",
       bank: editDestBank,
       accountType: editDestAccountType,
       date: updated.date,
@@ -359,6 +365,71 @@ function saveEdit() {
   closeEdit();
 }
   
+
+
+
+
+//fonction remplacant ce qu'il y a dans le filtrered.map
+const renderItem = useCallback((e) => {
+  return (
+    <div style={styles.item}>
+      <div style={{ display: "grid", gap: 4 }}>
+        <div style={{ fontWeight: 800, fontSize: 16 }}>
+          {formatEUR(
+            (e.kind === "expense" || e.kind === "transfer_out")
+              ? -Number(e.amount || 0)
+              : Number(e.amount || 0)
+          )}
+        </div>
+
+        {e.kind === "expense" && (() => {
+          const reimb = reimburseByExpenseId.get(e.id) || 0;
+          if (reimb <= 0) return null;
+          const remaining = Math.max(0, Number(e.amount || 0) - reimb);
+          return (
+            <div style={{ color: "#6b7280", fontSize: 12 }}>
+              Remboursé: {formatEUR(reimb)} • Reste: {formatEUR(remaining)}
+            </div>
+          );
+        })()}
+
+        <div style={styles.muted}>
+          {e.date} • {e.kind === "income"
+            ? "Revenu"
+            : e.kind === "reimbursement"
+            ? "Remboursement"
+            : (e.kind === "transfer_in" || e.kind === "transfer_out")
+            ? "Virement"
+            : "Dépense"
+          }
+          • {e.category}
+          • {e.bank ?? "Physique"}
+          • {e.accountType ?? "Compte courant"}
+          {e.person ? ` • ${e.person}` : ""}
+          {e.note ? ` • ${e.note}` : ""}
+        </div>
+      </div>
+
+      <div style={{ display: "flex", gap: 8 }}>
+        <button onClick={() => openEdit(e)} style={styles.btnEdit}>Éditer</button>
+        <button onClick={() => onDelete(e.id)} style={styles.btnDanger}>Suppr.</button>
+      </div>
+    </div>
+  );
+}, [formatEUR, reimburseByExpenseId, openEdit, onDelete]);
+//fonction remplacant ce qu'il y a dans le filtrered.map
+
+
+
+  // Virtualisation (hauteurs variables) via @tanstack/react-virtual
+  const parentRef = useRef(null);
+  const rowVirtualizer = useVirtualizer({
+    count: filtered.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 110, // estimation, les hauteurs réelles sont mesurées automatiquement
+    overscan: 10,
+  });
+
 
   return (
     <div style={{ padding: 12, display: "grid", gap: 12 }}>
@@ -525,64 +596,47 @@ function saveEdit() {
       {filtered.length === 0 ? (
         <div style={styles.empty}>Aucune dépense pour ce filtre.</div>
       ) : (
-        <div style={{ display: "grid", gap: 10 }}>
-          {filtered.map(e => (
-            <div key={e.id} style={styles.item}>
-              <div style={{ display: "grid", gap: 4 }}>
-                <div style={{ fontWeight: 800, fontSize: 16 }}>
-                  {formatEUR(
-                    (e.kind === "expense" || e.kind === "transfer_out")
-                      ? -Number(e.amount || 0)
-                      : Number(e.amount || 0)
-                  )}
-                </div>
-{e.kind === "expense" && (() => {
-  const reimb = reimburseByExpenseId.get(e.id) || 0;
-  if (reimb <= 0) return null;
-  const remaining = Math.max(0, Number(e.amount || 0) - reimb);
-  return (
-    <div style={{ color: "#6b7280", fontSize: 12 }}>
-      Remboursé: {formatEUR(reimb)} • Reste: {formatEUR(remaining)}
-    </div>
-  );
-})()}
-                <div style={styles.muted}>
-                   {e.date} • {e.kind === "income" ? "Revenu" : e.kind === "reimbursement" ? "Remboursement" : (e.kind === "transfer_in" || e.kind === "transfer_out") ? "Virement" : "Dépense"} • {e.category} • {e.bank ?? "Physique"} • {e.accountType ?? "Compte courant"}
-                   {String(e.person || "").trim() ? ` • ${String(e.person).trim()}` : ""}
-                   {e.note ? ` • ${e.note}` : ""}
-                </div>
-              </div>
+        <div
+          ref={parentRef}
+          style={{
+            height: "70vh",
+            overflow: "auto",
+            width: "100%",
+            minHeight: 300,
+            position: "relative",
+          }}
+        >
+          <div
+            style={{
+              height: `${rowVirtualizer.getTotalSize()}px`,
+              width: "100%",
+              position: "relative",
+            }}
+          >
+            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+              const e = filtered[virtualRow.index];
+              if (!e) return null;
 
-			<div style={{ display: "flex", gap: 8 }}>
-			{e.kind === "expense" && typeof onCreateReimbursement === "function" && (
-  <button
-    onClick={() => {
-      const v = prompt("Montant remboursé (€) :", "");
-      if (v == null) return;
-      const a = Number(String(v).replace(",", "."));
-      if (!Number.isFinite(a) || a <= 0) return alert("Montant invalide.");
-      const today = toISODate(new Date());
-      onCreateReimbursement({
-        linkedExpenseId: e.id,
-        amount: Math.round(a * 100) / 100,
-        date: today,
-        bank: e.bank,
-        accountType: e.accountType,
-        note: `Remboursement : ${e.note || e.category || ""}`.trim(),
-        person: e.person
-      });
-    }}
-    style={styles.btnSecondary}
-  >
-    Remb.
-  </button>
-)}
-                <button onClick={() => openEdit(e)} style={styles.btnEdit}>Éditer</button>
-
-                <button onClick={() => onDelete(e.id)} style={styles.btnDanger}>Suppr.</button>
-              </div>
-            </div>
-          ))}
+              return (
+                <div
+                  key={e.id ?? virtualRow.key}
+                  data-index={virtualRow.index}
+                  ref={rowVirtualizer.measureElement}
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    transform: `translateY(${virtualRow.start}px)`,
+                    boxSizing: "border-box",
+                    paddingBottom: 10,
+                  }}
+                >
+                  {renderItem(e)}
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 
@@ -685,6 +739,22 @@ function saveEdit() {
                 Catégorie
                 <select value={editCategory} onChange={(e) => setEditCategory(e.target.value)} style={styles.input}>
                   {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </label>
+
+              <label style={styles.label}>
+                Sous-catégorie (optionnel)
+                <select
+                  value={editSubcategory}
+                  onChange={(e) => setEditSubcategory(e.target.value)}
+                  style={styles.input}
+                >
+                  <option value="">—</option>
+                  {((subcategoriesMap && subcategoriesMap[editCategory]) || []).map((sc) => (
+                    <option key={sc} value={sc}>
+                      {sc}
+                    </option>
+                  ))}
                 </select>
               </label>
 

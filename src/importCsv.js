@@ -79,6 +79,7 @@ export function parseExpensesCSV(text, { defaultBank, defaultAccountType } = {})
     const date = pick(obj, "date", "jour");
     const amountRaw = pick(obj, "montant", "amount", "prix", "valeur");
     const category = pick(obj, "categorie", "category", "cat");
+    const subcategory = pick(obj, "sous_categorie", "souscategorie", "sub_category", "subcategory", "subcat");
     const note = pick(obj, "note", "libelle", "description");
     const person = pick(obj, "personne", "person", "qui", "who");
     const bank = pick(obj, "banque", "bank") || defaultBank || "Physique";
@@ -141,6 +142,7 @@ const amount = Math.abs(raw);
       linkedExpenseId,
       amount: Math.round(amount * 100) / 100,
       category: safeCategory,
+      subcategory: String(subcategory || "").trim(),
       bank: cleanBank,
       accountType: cleanType,
       note: String(note || "").trim(),

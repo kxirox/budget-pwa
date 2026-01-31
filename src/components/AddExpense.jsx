@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { toISODate } from "../utils";
 
-export default function AddExpense({ categories, banks, accountTypes, people = [], expenses = [], onAdd }) {
+export default function AddExpense({ categories, subcategoriesMap = {}, banks, accountTypes, people = [], expenses = [], onAdd }) {
   const today = useMemo(() => toISODate(new Date()), []);
   const [amount, setAmount] = useState("");
   const [category, setCategory] = useState(categories[0] ?? "Autres");
+  const [subcategory, setSubcategory] = useState("");
   const [date, setDate] = useState(today);
   const [note, setNote] = useState("");
   const [bank, setBank] = useState(banks[0] ?? "Physique");
@@ -44,6 +45,14 @@ useEffect(() => {
   if (p && !String(person).trim()) setPerson(p);
   // eslint-disable-next-line react-hooks/exhaustive-deps
 }, [kind, linkedExpenseId]);
+
+// Sous-categories : si on change de categorie, on garde une valeur valide
+useEffect(() => {
+  const list = Array.isArray(subcategoriesMap?.[category]) ? subcategoriesMap[category] : [];
+  if (!subcategory) return;
+  if (!list.includes(subcategory)) setSubcategory("");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [category, subcategoriesMap, subcategory]);
  
 
 
@@ -86,6 +95,7 @@ useEffect(() => {
         linkedExpenseId: kind === "reimbursement" ? (linkedExpenseId || undefined) : undefined,
         amount: Math.round(a * 100) / 100,
         category,
+        subcategory,
         bank,
         accountType,
         date,
@@ -97,6 +107,7 @@ useEffect(() => {
   setAmount("");
   setNote("");
   setPerson("");
+  setSubcategory("");
 
   setJustAdded(true);
   setTimeout(() => setJustAdded(false), 1500);
@@ -171,6 +182,24 @@ useEffect(() => {
             Catégorie
             <select value={category} onChange={(e) => setCategory(e.target.value)} style={styles.input}>
               {categories.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </label>
+        )}
+
+        {kind !== "transfer" && (
+          <label style={styles.label}>
+            Sous-catégorie (optionnel)
+            <select
+              value={subcategory}
+              onChange={(e) => setSubcategory(e.target.value)}
+              style={styles.input}
+            >
+              <option value="">—</option>
+              {((subcategoriesMap && subcategoriesMap[category]) || []).map((sc) => (
+                <option key={sc} value={sc}>
+                  {sc}
+                </option>
+              ))}
             </select>
           </label>
         )}
