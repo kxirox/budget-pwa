@@ -454,7 +454,7 @@ async function backupNow() {
 
     // ⚠️ adapte si certains noms n'existent pas chez toi
     const payload = {
-      version: 1,
+      version: 2,
       exportedAt: new Date().toISOString(),
       data: {
         expenses,
@@ -463,6 +463,12 @@ async function backupNow() {
         accountTypes,
         people,
         recurring,
+        // paramètres / réglages
+        categoryColors,
+        subcategories: subcategoriesMap,
+        autoCatRules,
+        forecastItems,
+        forecastSettings,
       },
     };
 
@@ -505,6 +511,12 @@ async function restoreFromDrive() {
     if (Array.isArray(d.accountTypes)) setAccountTypes(d.accountTypes);
     if (Array.isArray(d.people)) setPeople(d.people);
     if (Array.isArray(d.recurring)) setRecurring(d.recurring);
+
+    if (d.categoryColors && typeof d.categoryColors === "object") setCategoryColors(d.categoryColors);
+    if (d.subcategories && typeof d.subcategories === "object") setSubcategoriesMap(d.subcategories);
+    if (d.autoCatRules && typeof d.autoCatRules === "object") setAutoCatRules(d.autoCatRules);
+    if (Array.isArray(d.forecastItems)) setForecastItems(d.forecastItems);
+    if (d.forecastSettings && typeof d.forecastSettings === "object") setForecastSettings(d.forecastSettings);
 
     setDriveStatus("Drive : restauration OK ✅");
     alert("Restauration terminée !");
@@ -707,8 +719,8 @@ async function restoreFromDrive() {
           recurring={recurring}
           setRecurring={setRecurring}
           categories={safeCategories}
-          banks={DEFAULT_BANKS}
-          accountTypes={DEFAULT_ACCOUNT_TYPES}
+          banks={banks}
+          accountTypes={accountTypes}
         />
       )}
 
