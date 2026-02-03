@@ -120,6 +120,8 @@ export default function Forecast({
   const [certainty, setCertainty] = useState("certain");
   const [includePastOnConvert, setIncludePastOnConvert] = useState(false);
 
+  const [selectedIds, setSelectedIds] = useState([]);
+
   useEffect(() => {
     setCategory((c) => (categories.includes(c) ? c : (categories?.[0] || "Autres")));
   }, [categories]);
@@ -140,6 +142,11 @@ export default function Forecast({
       .filter((it) => it?.date >= startISO && it?.date <= endISO)
       .sort((a, b) => String(a.date).localeCompare(String(b.date)));
   }, [forecastItems, startISO, endISO]);
+
+  useEffect(() => {
+    const allowed = new Set((monthItems || []).map((it) => it.id));
+    setSelectedIds((prev) => (prev || []).filter((id) => allowed.has(id)));
+  }, [monthItems]);
 
   const monthItemsIncluded = useMemo(() => {
     return monthItems.filter((it) => includeCertainty.includes(it.certainty || "certain"));
@@ -204,6 +211,68 @@ export default function Forecast({
   function removeItem(id) {
     if (!confirm("Supprimer cette ligne prévisionnelle ?")) return;
     setForecastItems((prev) => (prev || []).filter((it) => it.id !== id));
+    setSelectedIds((prev) => (prev || []).filter((x) => x !== id));
+  }
+
+  function toggleSelect(id) {
+    setSelectedIds((prev) => {
+      const arr = Array.isArray(prev) ? prev : [];
+      return arr.includes(id) ? arr.filter((x) => x !== id) : [id, ...arr];
+    });
+  }
+
+  function setAllSelected(ids) {
+    setSelectedIds(Array.from(new Set(ids || [])));
+  }
+
+  function clearSelection() {
+    setSelectedIds([]);
+  }
+
+  function canConvertItem(it) {
+    if (!it?.date) return false;
+    if (!includePastOnConvert && it.date < nowISO) return false;
+    return true;
+  }
+
+  function convertItemsToReal(items) {
+    if (typeof setExpenses !== "function") {
+      alert("Erreur: setExpenses manquant.");
+      return;
+    }
+
+    const ok = (items || []).filter(canConvertItem);
+    const skipped = (items || []).filter((it) => !canConvertItem(it));
+
+    if (ok.length === 0) {
+      alert("Aucune ligne sélectionnée convertible (vérifie 'Inclure les lignes passées').");
+      return;
+    }
+
+    const msg =
+      `Convertir ${ok.length} ligne(s) prévisionnelle(s) en opérations réelles dans l’historique ?` +
+      (skipped.length ? `\n(${skipped.length} ignorée(s) car passée(s))` : "") +
+      `\n\nElles seront ajoutées dans l’onglet Historique et supprimées du prévisionnel.`;
+    if (!confirm(msg)) return;
+
+    const created = ok.map((it) => ({
+      id: uid(),
+      kind: it.kind === "income" ? "income" : "expense",
+      amount: Math.abs(Number(it.amount || 0)),
+      category: (it.category || "Autres").trim() || "Autres",
+      subcategory: it.subcategory || "",
+      bank: (it.bank || "Physique").trim() || "Physique",
+      accountType: (it.accountType || "Compte courant").trim() || "Compte courant",
+      date: it.date,
+      note: (it.note || "").trim(),
+      person: ""
+    }));
+
+    setExpenses((prev) => [...created, ...(prev || [])]);
+
+    const ids = new Set(ok.map((c) => c.id));
+    setForecastItems((prev) => (prev || []).filter((it) => !ids.has(it.id)));
+    setSelectedIds((prev) => (prev || []).filter((id) => !ids.has(id)));
   }
 
   function toggleCert(c) {
@@ -213,41 +282,22 @@ export default function Forecast({
     setForecastSettings((prev) => ({ ...(prev || {}), includeCertainty: Array.from(next) }));
   }
 
-  function convertToReal() {
-    if (typeof setExpenses !== "function") {
-      alert("Erreur: setExpenses manquant.");
+  function convertSelection() {
+    const items = monthItems.filter((it) => (selectedIds || []).includes(it.id));
+    if (items.length === 0) {
+      alert("Aucune ligne sélectionnée.");
       return;
     }
+    convertItemsToReal(items);
+  }
 
-    const candidates = monthItems
-      .filter((it) => includeCertainty.includes(it.certainty || "certain"))
-      .filter((it) => (includePastOnConvert ? true : it.date >= nowISO));
-
+  function convertAllFiltered() {
+    const candidates = monthItems.filter((it) => includeCertainty.includes(it.certainty || "certain"));
     if (candidates.length === 0) {
-      alert("Aucune ligne à convertir (vérifie les filtres de certitude / dates).");
+      alert("Aucune ligne à convertir (vérifie les filtres de certitude).");
       return;
     }
-
-    const msg =
-      `Convertir ${candidates.length} ligne(s) prévisionnelle(s) en opérations réelles dans l’historique ?\n\n` +
-      `Elles seront ajoutées dans l’onglet Historique et supprimées du prévisionnel.`;
-    if (!confirm(msg)) return;
-
-    const created = candidates.map((it) => ({
-      id: uid(),
-      kind: it.kind === "income" ? "income" : "expense",
-      amount: Math.abs(Number(it.amount || 0)),
-      category: (it.category || "Autres").trim() || "Autres",
-      bank: (it.bank || "Physique").trim() || "Physique",
-      accountType: (it.accountType || "Compte courant").trim() || "Compte courant",
-      date: it.date,
-      note: (it.note || "").trim(),
-      person: ""
-    }));
-
-    setExpenses((prev) => [...created, ...(prev || [])]);
-    const ids = new Set(candidates.map((c) => c.id));
-    setForecastItems((prev) => (prev || []).filter((it) => !ids.has(it.id)));
+    convertItemsToReal(candidates);
   }
 
   return (
@@ -439,8 +489,22 @@ export default function Forecast({
               />
               Inclure les lignes passées
             </label>
-            <button onClick={convertToReal} style={styles.primary}>
-              Convertir en opérations réelles
+            <label style={{ display: "flex", gap: 8, alignItems: "center", color: "#6b7280", fontSize: 13 }}>
+              <input
+                type="checkbox"
+                checked={monthItems.length > 0 && (selectedIds || []).length === monthItems.length}
+                onChange={(e) => {
+                  if (e.target.checked) setAllSelected(monthItems.map((x) => x.id));
+                  else clearSelection();
+                }}
+              />
+              Tout sélectionner
+            </label>
+            <button onClick={convertSelection} style={styles.primary} disabled={(selectedIds || []).length === 0}>
+              Convertir la sélection ({(selectedIds || []).length})
+            </button>
+            <button onClick={convertAllFiltered} style={{ ...styles.primary, background: "white", color: "#111827" }}>
+              Convertir tout (selon filtres)
             </button>
           </div>
         </div>
@@ -454,7 +518,14 @@ export default function Forecast({
               const s = signed(it.kind, it.amount);
               return (
                 <div key={it.id} style={{ ...styles.row, opacity: included ? 1 : 0.5 }}>
-                  <div style={{ fontVariantNumeric: "tabular-nums" }}>{it.date}</div>
+                  <div style={{ fontVariantNumeric: "tabular-nums", display: "flex", gap: 8, alignItems: "center" }}>
+                    <input
+                      type="checkbox"
+                      checked={(selectedIds || []).includes(it.id)}
+                      onChange={() => toggleSelect(it.id)}
+                    />
+                    <span>{it.date}</span>
+                  </div>
 
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontWeight: 700 }}>{it.title}</div>
@@ -468,14 +539,36 @@ export default function Forecast({
                       <div style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
                         {formatEUR(s)}
                       </div>
-                      <button onClick={() => removeItem(it.id)} style={styles.danger}>Supprimer</button>
+                      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                        <button
+                          onClick={() => convertItemsToReal([it])}
+                          style={{ ...styles.primary, padding: "8px 10px", borderRadius: 10 }}
+                          disabled={!canConvertItem(it)}
+                        >
+                          Convertir
+                        </button>
+                        <button onClick={() => removeItem(it.id)} style={{ ...styles.danger, padding: "8px 10px", borderRadius: 10 }}>
+                          Supprimer
+                        </button>
+                      </div>
                     </>
                   )}
 
                   {isMobile && (
                     <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
                       <div style={{ fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>{formatEUR(s)}</div>
-                      <button onClick={() => removeItem(it.id)} style={styles.danger}>Supprimer</button>
+                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                        <button
+                          onClick={() => convertItemsToReal([it])}
+                          style={{ ...styles.primary, padding: "8px 10px", borderRadius: 10 }}
+                          disabled={!canConvertItem(it)}
+                        >
+                          Convertir
+                        </button>
+                        <button onClick={() => removeItem(it.id)} style={{ ...styles.danger, padding: "8px 10px", borderRadius: 10 }}>
+                          Supprimer
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
