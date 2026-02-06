@@ -1,22 +1,57 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { currentMonthKey, formatEUR, monthLabelFR, toCSV, toISODate } from "../utils";
 import { parseExpensesCSV } from "../importCsv";
 import { parseCreditMutuelWorkbook } from "../importCreditMutuel";
+import { saveFilters, loadFilters } from "../filterStorage";
 
 // A SUPPRIMER SI PAS DE BUG LORS DU RUN
 // import ImportCreditMutuel from "./ImportCreditMutuel";
 
 
 export default function ExpenseList({ expenses, categories, subcategoriesMap = {}, banks, accountTypes, people = [], onDelete, onUpdate, onImport, onCreateReimbursement, onOpenWipeModal }) {
-  const [month, setMonth] = useState("ALL");
-  const [cat, setCat] = useState("Toutes");
-  const [bankFilter, setBankFilter] = useState("Toutes");
-  const [accountTypeFilter, setAccountTypeFilter] = useState("Toutes");
-  const [q, setQ] = useState("");
-  const [mode, setMode] = useState("month"); // "month" | "range"
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
+  // Filtres par défaut
+  const defaultFilters = {
+    month: "ALL",
+    cat: "Toutes",
+    bankFilter: "Toutes",
+    accountTypeFilter: "Toutes",
+    q: "",
+    mode: "month",
+    from: "",
+    to: "",
+    selectedTypes: ["expense", "income", "reimbursement", "transfer_in", "transfer_out"]
+  };
+
+  // Charger les filtres sauvegardés (même pattern que Stats.jsx)
+  const savedFilters = loadFilters("history", defaultFilters);
+
+  // États pour les filtres — initialisés directement avec les valeurs sauvegardées
+  const [month, setMonth] = useState(savedFilters.month);
+  const [cat, setCat] = useState(savedFilters.cat);
+  const [bankFilter, setBankFilter] = useState(savedFilters.bankFilter);
+  const [accountTypeFilter, setAccountTypeFilter] = useState(savedFilters.accountTypeFilter);
+  const [q, setQ] = useState(savedFilters.q);
+  const [mode, setMode] = useState(savedFilters.mode);
+  const [from, setFrom] = useState(savedFilters.from);
+  const [to, setTo] = useState(savedFilters.to);
+  const [selectedTypes, setSelectedTypes] = useState(savedFilters.selectedTypes);
+
+  // Sauvegarder les filtres à chaque changement
+  useEffect(() => {
+    const currentFilters = {
+      month,
+      cat,
+      bankFilter,
+      accountTypeFilter,
+      q,
+      mode,
+      from,
+      to,
+      selectedTypes
+    };
+    saveFilters("history", currentFilters);
+  }, [month, cat, bankFilter, accountTypeFilter, q, mode, from, to, selectedTypes]);
 
   // Import Crédit Mutuel (Excel)
   const [cmBank, setCmBank] = useState(() => (banks?.includes("Crédit Mutuel") ? "Crédit Mutuel" : (banks?.[0] ?? "Crédit Mutuel")));
@@ -64,6 +99,11 @@ export default function ExpenseList({ expenses, categories, subcategoriesMap = {
         return a === accountTypeFilter;
       })
       .filter(e => {
+        // Filtre par type d'opération
+        if (selectedTypes.length === 0) return true; // Si aucun type sélectionné, tout afficher
+        return selectedTypes.includes(e.kind);
+      })
+      .filter(e => {
         if (!q.trim()) return true;
         const s = q.trim().toLowerCase();
         return (
@@ -75,7 +115,7 @@ export default function ExpenseList({ expenses, categories, subcategoriesMap = {
       })
       .slice()
       .sort((a, b) => b.date.localeCompare(a.date));
-  }, [expenses, month, mode, from, to, cat, bankFilter, accountTypeFilter, q]);
+  }, [expenses, month, mode, from, to, cat, bankFilter, accountTypeFilter, selectedTypes, q]);
 
 const reimburseByExpenseId = useMemo(() => {
   const map = new Map(); // expenseId -> sum
@@ -297,7 +337,7 @@ function makeId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-function saveEdit() {
+  function saveEdit() {
   const a = Number(String(editAmount).replace(",", "."));
   if (!Number.isFinite(a) || a <= 0) {
     alert("Montant invalide.");
@@ -364,7 +404,42 @@ function saveEdit() {
   onUpdate(editingId, updated);
   closeEdit();
 }
+
+  // Gestion du filtre par type d'opération
+  const toggleType = (type) => {
+    setSelectedTypes(prev => {
+      if (prev.includes(type)) {
+        return prev.filter(t => t !== type);
+      } else {
+        return [...prev, type];
+      }
+    });
+  };
+
+  const setRealExpensesOnly = () => {
+    // Afficher uniquement les dépenses réelles (exclut virements, remboursements, épargne, investissements)
+    setSelectedTypes(["expense"]);
+  };
+
+  const resetTypeFilter = () => {
+    // Réinitialiser pour afficher tous les types
+    setSelectedTypes(["expense", "income", "reimbursement", "transfer_in", "transfer_out"]);
+  };
+
+  const resetAllFilters = () => {
+    // Réinitialiser tous les filtres de l'historique
+    setMonth("ALL");
+    setCat("Toutes");
+    setBankFilter("Toutes");
+    setAccountTypeFilter("Toutes");
+    setQ("");
+    setMode("month");
+    setFrom("");
+    setTo("");
+    setSelectedTypes(["expense", "income", "reimbursement", "transfer_in", "transfer_out"]);
+  };
   
+
 
 
 
@@ -506,6 +581,146 @@ const renderItem = useCallback((e) => {
             Recherche (note / catégorie / banque / type)
             <input value={q} onChange={(e) => setQ(e.target.value)} style={styles.input} placeholder="ex: Uber, Revolut..." />
           </label>
+
+          {/* Bouton de réinitialisation des filtres */}
+          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: -4 }}>
+            <button
+              onClick={resetAllFilters}
+              style={{
+                ...styles.btnSecondary,
+                fontSize: 12,
+                padding: "8px 12px",
+                background: "#f3f4f6",
+                border: "1px solid #d1d5db"
+              }}
+              title="Réinitialiser tous les filtres aux valeurs par défaut"
+            >
+              🔄 Réinitialiser les filtres
+            </button>
+          </div>
+
+          {/* Filtre par type d'opération */}
+          <div style={{ 
+            padding: 14, 
+            borderRadius: 12, 
+            border: "1px solid #e5e7eb", 
+            background: "#f9fafb",
+            marginTop: 4
+          }}>
+            <div style={{ fontWeight: 700, fontSize: 13, color: "#111827", marginBottom: 10 }}>
+              Type d'opération
+            </div>
+            
+            <div style={{ 
+              display: "grid", 
+              gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(150px, 1fr))",
+              gap: 8,
+              marginBottom: 10
+            }}>
+              <label style={{ 
+                display: "flex", 
+                alignItems: "center", 
+                gap: 8, 
+                cursor: "pointer",
+                fontSize: 14
+              }}>
+                <input
+                  type="checkbox"
+                  checked={selectedTypes.includes("expense")}
+                  onChange={() => toggleType("expense")}
+                  style={{ cursor: "pointer" }}
+                />
+                <span>Dépenses</span>
+              </label>
+
+              <label style={{ 
+                display: "flex", 
+                alignItems: "center", 
+                gap: 8, 
+                cursor: "pointer",
+                fontSize: 14
+              }}>
+                <input
+                  type="checkbox"
+                  checked={selectedTypes.includes("income")}
+                  onChange={() => toggleType("income")}
+                  style={{ cursor: "pointer" }}
+                />
+                <span>Revenus</span>
+              </label>
+
+              <label style={{ 
+                display: "flex", 
+                alignItems: "center", 
+                gap: 8, 
+                cursor: "pointer",
+                fontSize: 14
+              }}>
+                <input
+                  type="checkbox"
+                  checked={selectedTypes.includes("reimbursement")}
+                  onChange={() => toggleType("reimbursement")}
+                  style={{ cursor: "pointer" }}
+                />
+                <span>Remboursements</span>
+              </label>
+
+              <label style={{ 
+                display: "flex", 
+                alignItems: "center", 
+                gap: 8, 
+                cursor: "pointer",
+                fontSize: 14
+              }}>
+                <input
+                  type="checkbox"
+                  checked={selectedTypes.includes("transfer_in") || selectedTypes.includes("transfer_out")}
+                  onChange={() => {
+                    const hasTransfers = selectedTypes.includes("transfer_in") || selectedTypes.includes("transfer_out");
+                    if (hasTransfers) {
+                      // Désactiver les deux types de virement
+                      setSelectedTypes(prev => prev.filter(t => t !== "transfer_in" && t !== "transfer_out"));
+                    } else {
+                      // Activer les deux types de virement
+                      setSelectedTypes(prev => [...prev, "transfer_in", "transfer_out"]);
+                    }
+                  }}
+                  style={{ cursor: "pointer" }}
+                />
+                <span>Virements</span>
+              </label>
+            </div>
+
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button 
+                onClick={setRealExpensesOnly}
+                style={{
+                  ...styles.btnSecondary,
+                  fontSize: 12,
+                  padding: "8px 12px",
+                  background: selectedTypes.length === 1 && selectedTypes[0] === "expense" ? "#111827" : "white",
+                  color: selectedTypes.length === 1 && selectedTypes[0] === "expense" ? "white" : "#111827",
+                }}
+              >
+                💰 Mes dépenses réelles
+              </button>
+              
+              <button 
+                onClick={resetTypeFilter}
+                style={{
+                  ...styles.btnSecondary,
+                  fontSize: 12,
+                  padding: "8px 12px"
+                }}
+              >
+                Tout afficher
+              </button>
+            </div>
+
+            <div style={{ fontSize: 11, color: "#6b7280", marginTop: 8 }}>
+              Astuce : "Mes dépenses réelles" exclut virements, remboursements et épargne pour analyser le vrai coût de vie.
+            </div>
+          </div>
 
           <div style={styles.summary}>
             <div>
