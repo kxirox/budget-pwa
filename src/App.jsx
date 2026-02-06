@@ -101,7 +101,27 @@ function formatSignedPct(value) {
 
 
 export default function App() {
-  const [tab, setTab] = useState("add");
+  // Persister l'onglet actif
+  const loadActiveTab = () => {
+    try {
+      const saved = localStorage.getItem("budget_active_tab");
+      return saved || "add";
+    } catch {
+      return "add";
+    }
+  };
+
+  const [tab, setTab] = useState(loadActiveTab);
+  
+  // Sauvegarder l'onglet actif à chaque changement
+  useEffect(() => {
+    try {
+      localStorage.setItem("budget_active_tab", tab);
+    } catch (err) {
+      console.warn("Impossible de sauvegarder l'onglet actif:", err);
+    }
+  }, [tab]);
+
   const [categories, setCategories] = useState(() => loadCategories());
   const [expenses, setExpenses] = useState(() => loadExpenses());
   const [banks, setBanks] = useState(() => {

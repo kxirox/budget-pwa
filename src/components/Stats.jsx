@@ -1,6 +1,7 @@
 import React, { useMemo, useState, useEffect } from "react";
 import { PieChart, Pie, Tooltip, ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Cell } from "recharts";
 import { currentMonthKey, formatEUR, monthLabelFR } from "../utils";
+import { saveFilters, loadFilters } from "../filterStorage";
 
 
 export default function Stats({ 
@@ -12,16 +13,55 @@ export default function Stats({
   categoryColors = {},
   filters = {}
 }) {
+  // Filtres par défaut
+  const defaultFilters = {
+    mode: "month",
+    month: "ALL",
+    from: "",
+    to: "",
+    scope: "total",
+    selectedKey: "ALL",
+    subcatCategory: (Array.isArray(categories) && categories[0]) ? categories[0] : "Autres"
+  };
+
+  // Charger les filtres sauvegardés
+  const savedFilters = loadFilters("stats", defaultFilters);
+
   // UI filter
-  const [mode, setMode] = useState("month"); // "month" | "range"
-  const [month, setMonth] = useState("ALL"); // "ALL" or "YYYY-MM"
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
-  const [scope, setScope] = useState("total"); // "total" | "bank" | "type"
-  const [selectedKey, setSelectedKey] = useState("ALL"); // ALL ou une banque/un type
+  const [mode, setMode] = useState(savedFilters.mode); // "month" | "range"
+  const [month, setMonth] = useState(savedFilters.month); // "ALL" or "YYYY-MM"
+  const [from, setFrom] = useState(savedFilters.from);
+  const [to, setTo] = useState(savedFilters.to);
+  const [scope, setScope] = useState(savedFilters.scope); // "total" | "bank" | "type"
+  const [selectedKey, setSelectedKey] = useState(savedFilters.selectedKey); // ALL ou une banque/un type
 
   // Sous-categories : camembert par sous-categorie pour une categorie parente
-  const [subcatCategory, setSubcatCategory] = useState(() => (Array.isArray(categories) && categories[0]) ? categories[0] : "Autres");
+  const [subcatCategory, setSubcatCategory] = useState(savedFilters.subcatCategory);
+
+  // Sauvegarder les filtres à chaque changement
+  useEffect(() => {
+    const currentFilters = {
+      mode,
+      month,
+      from,
+      to,
+      scope,
+      selectedKey,
+      subcatCategory
+    };
+    saveFilters("stats", currentFilters);
+  }, [mode, month, from, to, scope, selectedKey, subcatCategory]);
+
+  // Fonction pour réinitialiser tous les filtres
+  const resetAllFilters = () => {
+    setMode("month");
+    setMonth("ALL");
+    setFrom("");
+    setTo("");
+    setScope("total");
+    setSelectedKey("ALL");
+    setSubcatCategory((Array.isArray(categories) && categories[0]) ? categories[0] : "Autres");
+  };
 
 
 
@@ -460,6 +500,25 @@ const subcatData = useMemo(() => {
             ) : (
               <div />
             )}
+          </div>
+
+          {/* Bouton de réinitialisation des filtres */}
+          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: -4 }}>
+            <button
+              onClick={resetAllFilters}
+              style={{
+                padding: "8px 12px",
+                borderRadius: 12,
+                border: "1px solid #d1d5db",
+                background: "#f3f4f6",
+                fontSize: 12,
+                cursor: "pointer",
+                fontWeight: 600
+              }}
+              title="Réinitialiser tous les filtres aux valeurs par défaut"
+            >
+              🔄 Réinitialiser les filtres
+            </button>
           </div>
 
 
