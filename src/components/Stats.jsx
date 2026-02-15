@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect } from "react";
-import { PieChart, Pie, Tooltip, ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Cell } from "recharts";
+import { PieChart, Pie, Tooltip, ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Cell, BarChart, Bar, Legend } from "recharts";
 import { currentMonthKey, formatEUR, monthLabelFR } from "../utils";
 import { saveFilters, loadFilters } from "../filterStorage";
 
@@ -189,27 +189,28 @@ useEffect(() => {
 
 
 
-  // Filtered expenses for stats
- const statsFiltered = useMemo(() => {
-  return safeExpenses.filter(e => {
-    const d = String(e.date || "").trim();
+  // Filtre date uniquement — pour les camemberts par banque/type (pas affecté par les filtres banque/type)
+  const statsFilteredDateOnly = useMemo(() => {
+    return safeExpenses.filter(e => {
+      const d = String(e.date || "").trim();
+      if (mode === "range") {
+        if (from && d < from) return false;
+        if (to && d > to) return false;
+      } else {
+        if (month !== "ALL" && currentMonthKey(d) !== month) return false;
+      }
+      return true;
+    });
+  }, [safeExpenses, mode, from, to, month]);
 
-    // Date
-    if (mode === "range") {
-      if (from && d < from) return false;
-      if (to && d > to) return false;
-    } else {
-      if (month !== "ALL" && currentMonthKey(d) !== month) return false;
-    }
-
-
-    // Filtre banque + type de compte combinés (AND)
-    if (selectedBank !== "ALL" && String(e.bank || "") !== selectedBank) return false;
-    if (selectedAccountType !== "ALL" && String(e.accountType || "") !== selectedAccountType) return false;
-
-    return true;
-  });
-  }, [safeExpenses, mode, from, to, month, selectedBank, selectedAccountType]);
+  // Filtre date + banque + type de compte — pour tous les autres graphiques
+  const statsFiltered = useMemo(() => {
+    return statsFilteredDateOnly.filter(e => {
+      if (selectedBank !== "ALL" && String(e.bank || "") !== selectedBank) return false;
+      if (selectedAccountType !== "ALL" && String(e.accountType || "") !== selectedAccountType) return false;
+      return true;
+    });
+  }, [statsFilteredDateOnly, selectedBank, selectedAccountType]);
 
 
 
@@ -268,6 +269,43 @@ useEffect(() => {
     return { rows: out, keys: groupList };
   }, [statsFiltered, scope]);
   // fin balance timeline par groupe
+
+  // ── Histogramme 12 mois par catégorie ──────────────────────────────────────
+  const monthlyByCat = useMemo(() => {
+    const now = new Date();
+    // Générer les 12 derniers mois (YYYY-MM) du plus ancien au plus récent
+    const monthKeys = [];
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      monthKeys.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+    }
+
+    // Catégories présentes dans les dépenses filtrées
+    const catSet = new Set();
+    for (const e of statsFiltered) {
+      if (e.kind === "expense") catSet.add(e.category || "Autres");
+    }
+    const cats = Array.from(catSet).sort((a, b) => a.localeCompare(b));
+
+    // Construire les rows
+    const rows = monthKeys.map(mk => {
+      const row = { month: mk, label: monthLabelFR(mk).slice(0, 3) };
+      for (const c of cats) row[c] = 0;
+      return row;
+    });
+    const rowByMonth = new Map(rows.map(r => [r.month, r]));
+
+    for (const e of statsFiltered) {
+      if (e.kind !== "expense") continue;
+      const mk = String(e.date || "").slice(0, 7);
+      const row = rowByMonth.get(mk);
+      if (!row) continue;
+      const cat = e.category || "Autres";
+      row[cat] = Math.round(((row[cat] || 0) + Number(e.amount || 0)) * 100) / 100;
+    }
+
+    return { rows, cats };
+  }, [statsFiltered]);
 
 
 
@@ -407,7 +445,46 @@ const subcatData = useMemo(() => {
       .reduce((s, e) => s + Number(e.amount || 0), 0);
   }, [statsFiltered]);
 
+  // ── Solde par banque et par type de compte ──────────────────────────────────
+  // Utilise statsFilteredDateOnly (pas affecté par les filtres banque/type)
+  const { soldeByBank, soldeByType } = useMemo(() => {
+    const byBank = new Map();
+    const byType = new Map();
 
+    for (const e of statsFilteredDateOnly) {
+      const amount = Number(e.amount || 0);
+      const signed = (e.kind === "income" || e.kind === "reimbursement" || e.kind === "transfer_in")
+        ? amount : -amount;
+
+      const bankKey = String(e.bank || "Physique").trim() || "Physique";
+      const typeKey = String(e.accountType || "Compte courant").trim() || "Compte courant";
+
+      byBank.set(bankKey, (byBank.get(bankKey) || 0) + signed);
+      byType.set(typeKey, (byType.get(typeKey) || 0) + signed);
+    }
+
+    // Palette fixe pour banques / types (indépendante de categoryColors)
+    const palette = [
+      "#2563eb", "#16a34a", "#f97316", "#a855f7",
+      "#06b6d4", "#e11d48", "#84cc16", "#f59e0b",
+      "#0ea5e9", "#14b8a6", "#ec4899", "#6366f1"
+    ];
+
+    // On garde tous les groupes (positifs et négatifs), valeur absolue pour le camembert
+    const toSlices = (map) =>
+      Array.from(map.entries())
+        .map(([name, value], i) => ({
+          name,
+          value: Math.round(value * 100) / 100,
+          absValue: Math.round(Math.abs(value) * 100) / 100,
+          negative: value < 0,
+          fill: palette[i % palette.length]
+        }))
+        .filter(d => d.absValue > 0)
+        .sort((a, b) => b.absValue - a.absValue);
+
+    return { soldeByBank: toSlices(byBank), soldeByType: toSlices(byType) };
+  }, [statsFilteredDateOnly]);
 
 
   return (
@@ -592,6 +669,161 @@ const subcatData = useMemo(() => {
       </div>
 
       
+
+      {/* ── Camemberts solde par banque + par type de compte ── */}
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
+
+        {/* Solde par banque */}
+        <div style={styles.card}>
+          <h3 style={{ margin: 0, marginBottom: 14, fontSize: 15 }}>Solde par banque</h3>
+          {soldeByBank.length === 0 ? (
+            <div style={{ color: "#6b7280", textAlign: "center", padding: 20, fontSize: 13 }}>Pas de données.</div>
+          ) : (
+            <>
+              <div style={{ width: "100%", height: 200 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie dataKey="absValue" data={soldeByBank} cx="50%" cy="50%" outerRadius={80} isAnimationActive={false}>
+                      {soldeByBank.map((d, i) => <Cell key={i} fill={d.fill} />)}
+                    </Pie>
+                    <Tooltip
+                      formatter={(v, name, props) => {
+                        const item = props.payload;
+                        const sign = item?.negative ? "−" : "+";
+                        return [`${sign}${Number(v).toLocaleString("fr-FR", { minimumFractionDigits: 2 })} €`, item?.name];
+                      }}
+                      contentStyle={{ borderRadius: 10, border: "1px solid #e5e7eb", fontSize: 12 }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "5px 10px", marginTop: 8 }}>
+                {soldeByBank.map((d, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12 }}>
+                    <span style={{ width: 10, height: 10, borderRadius: 3, background: d.fill, flexShrink: 0 }} />
+                    <span style={{ color: "#374151" }}>{d.name}</span>
+                    <span style={{ color: d.negative ? "#dc2626" : "#16a34a", fontWeight: 600 }}>
+                      {d.negative ? "−" : "+"}{Number(d.absValue).toLocaleString("fr-FR", { minimumFractionDigits: 2 })} €
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Solde par type de compte */}
+        <div style={styles.card}>
+          <h3 style={{ margin: 0, marginBottom: 14, fontSize: 15 }}>Solde par type de compte</h3>
+          {soldeByType.length === 0 ? (
+            <div style={{ color: "#6b7280", textAlign: "center", padding: 20, fontSize: 13 }}>Pas de données.</div>
+          ) : (
+            <>
+              <div style={{ width: "100%", height: 200 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie dataKey="absValue" data={soldeByType} cx="50%" cy="50%" outerRadius={80} isAnimationActive={false}>
+                      {soldeByType.map((d, i) => <Cell key={i} fill={d.fill} />)}
+                    </Pie>
+                    <Tooltip
+                      formatter={(v, name, props) => {
+                        const item = props.payload;
+                        const sign = item?.negative ? "−" : "+";
+                        return [`${sign}${Number(v).toLocaleString("fr-FR", { minimumFractionDigits: 2 })} €`, item?.name];
+                      }}
+                      contentStyle={{ borderRadius: 10, border: "1px solid #e5e7eb", fontSize: 12 }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "5px 10px", marginTop: 8 }}>
+                {soldeByType.map((d, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12 }}>
+                    <span style={{ width: 10, height: 10, borderRadius: 3, background: d.fill, flexShrink: 0 }} />
+                    <span style={{ color: "#374151" }}>{d.name}</span>
+                    <span style={{ color: d.negative ? "#dc2626" : "#16a34a", fontWeight: 600 }}>
+                      {d.negative ? "−" : "+"}{Number(d.absValue).toLocaleString("fr-FR", { minimumFractionDigits: 2 })} €
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* ── Histogramme 12 mois par catégorie ── */}
+      <div style={styles.card}>
+        <h3 style={{ margin: 0, marginBottom: 14 }}>Dépenses par catégorie — 12 mois</h3>
+
+        {monthlyByCat.rows.every(r => monthlyByCat.cats.every(c => !r[c])) ? (
+          <div style={{ color: "#6b7280", textAlign: "center", padding: 24 }}>
+            Pas de dépenses pour ce filtre.
+          </div>
+        ) : (
+          <>
+            <div style={{ width: "100%", height: isMobile ? 260 : 320 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={monthlyByCat.rows}
+                  margin={{ top: 4, right: 8, left: 0, bottom: 4 }}
+                  barCategoryGap="20%"
+                >
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fontSize: 11, fill: "#6b7280" }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    tick={{ fontSize: 11, fill: "#6b7280" }}
+                    axisLine={false}
+                    tickLine={false}
+                    tickFormatter={(v) => `${v}€`}
+                    width={52}
+                  />
+                  <Tooltip
+                    formatter={(value, name) => [`${Number(value).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`, name]}
+                    labelFormatter={(label) => {
+                      const row = monthlyByCat.rows.find(r => r.label === label);
+                      return row ? monthLabelFR(row.month) : label;
+                    }}
+                    contentStyle={{ borderRadius: 10, border: "1px solid #e5e7eb", fontSize: 12 }}
+                  />
+                  {monthlyByCat.cats.map((cat) => (
+                    <Bar
+                      key={cat}
+                      dataKey={cat}
+                      stackId="a"
+                      fill={categoryColors?.[cat] || "#9ca3af"}
+                      radius={monthlyByCat.cats.indexOf(cat) === monthlyByCat.cats.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
+                    />
+                  ))}
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Légende catégories */}
+            <div style={{
+              display: "flex", flexWrap: "wrap", gap: "6px 12px",
+              marginTop: 12, paddingTop: 10,
+              borderTop: "1px solid #f3f4f6"
+            }}>
+              {monthlyByCat.cats.map(cat => (
+                <div key={cat} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12 }}>
+                  <span style={{
+                    width: 10, height: 10, borderRadius: 3,
+                    background: categoryColors?.[cat] || "#9ca3af",
+                    flexShrink: 0
+                  }} />
+                  <span style={{ color: "#374151" }}>{cat}</span>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
 
       <div style={styles.card}>
         <h3 style={{ margin: 0, marginBottom: 10 }}>Répartition des dépenses</h3>
