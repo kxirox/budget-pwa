@@ -1173,6 +1173,8 @@ const styles = {
   page: {
     minHeight: "100vh",
     background: "#f5f0e8",
+    overflowX: "hidden",
+    maxWidth: "100vw",
     fontFamily:
       'system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji"'
   },

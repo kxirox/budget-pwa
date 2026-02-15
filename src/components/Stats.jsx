@@ -578,7 +578,7 @@ const subcatData = useMemo(() => {
               <select value={scope} onChange={(e) => setScope(e.target.value)} style={styles.input}>
                 <option value="total">Solde total</option>
                 <option value="bank">Par banque</option>
-                <option value="type">Par type de compte</option>
+                <option value="type">Par type</option>
               </select>
             </label>
 
@@ -602,9 +602,6 @@ const subcatData = useMemo(() => {
               </select>
             </label>
 
-
-
-
             {mode === "month" ? (
               <label style={styles.label}>
                 Mois
@@ -616,19 +613,16 @@ const subcatData = useMemo(() => {
                 </select>
               </label>
             ) : (
-              <label style={styles.label}>
-                Du
-                <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={styles.input} />
-              </label>
-            )}
-
-            {mode === "range" ? (
-              <label style={styles.label}>
-                Au
-                <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={styles.input} />
-              </label>
-            ) : (
-              <div />
+              <>
+                <label style={styles.label}>
+                  Du
+                  <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={styles.input} />
+                </label>
+                <label style={styles.label}>
+                  Au
+                  <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={styles.input} />
+                </label>
+              </>
             )}
           </div>
 
@@ -680,8 +674,8 @@ const subcatData = useMemo(() => {
             <div style={{ color: "#6b7280", textAlign: "center", padding: 20, fontSize: 13 }}>Pas de données.</div>
           ) : (
             <>
-              <div style={{ width: "100%", height: 200 }}>
-                <ResponsiveContainer width="100%" height="100%">
+              <div style={{ width: "100%", minWidth: 0, overflow: "hidden", height: 200 }}>
+                <ResponsiveContainer width="99%" height="100%">
                   <PieChart>
                     <Pie dataKey="absValue" data={soldeByBank} cx="50%" cy="50%" outerRadius={80} isAnimationActive={false}>
                       {soldeByBank.map((d, i) => <Cell key={i} fill={d.fill} />)}
@@ -719,8 +713,8 @@ const subcatData = useMemo(() => {
             <div style={{ color: "#6b7280", textAlign: "center", padding: 20, fontSize: 13 }}>Pas de données.</div>
           ) : (
             <>
-              <div style={{ width: "100%", height: 200 }}>
-                <ResponsiveContainer width="100%" height="100%">
+              <div style={{ width: "100%", minWidth: 0, overflow: "hidden", height: 200 }}>
+                <ResponsiveContainer width="99%" height="100%">
                   <PieChart>
                     <Pie dataKey="absValue" data={soldeByType} cx="50%" cy="50%" outerRadius={80} isAnimationActive={false}>
                       {soldeByType.map((d, i) => <Cell key={i} fill={d.fill} />)}
@@ -762,8 +756,8 @@ const subcatData = useMemo(() => {
           </div>
         ) : (
           <>
-            <div style={{ width: "100%", height: isMobile ? 260 : 320 }}>
-              <ResponsiveContainer width="100%" height="100%">
+            <div style={{ width: "100%", minWidth: 0, overflow: "hidden", height: isMobile ? 260 : 320 }}>
+              <ResponsiveContainer width="99%" height="100%">
                 <BarChart
                   data={monthlyByCat.rows}
                   margin={{ top: 4, right: 8, left: 0, bottom: 4 }}
@@ -834,9 +828,9 @@ const subcatData = useMemo(() => {
             Pas de dépenses pour ce filtre.
           </div>
         ) : (
-          <div style={{ width: "100%" }}>
-            <div style={{ width: "100%", height: 320 }}>
-              <ResponsiveContainer width="100%" height="100%">
+          <div style={{ width: "100%", minWidth: 0, overflow: "hidden" }}>
+            <div style={{ width: "100%", minWidth: 0, overflow: "hidden", height: 320 }}>
+              <ResponsiveContainer width="99%" height="100%">
                 <PieChart>
                   <Pie
                     dataKey="value"
@@ -915,9 +909,9 @@ const subcatData = useMemo(() => {
             Pas de revenus pour ce filtre.
           </div>
         ) : (
-          <div style={{ width: "100%" }}>
-            <div style={{ width: "100%", height: 320 }}>
-              <ResponsiveContainer width="100%" height="100%">
+          <div style={{ width: "100%", minWidth: 0, overflow: "hidden" }}>
+            <div style={{ width: "100%", minWidth: 0, overflow: "hidden", height: 320 }}>
+              <ResponsiveContainer width="99%" height="100%">
                 <PieChart>
                   <Pie
                     dataKey="value"
@@ -953,7 +947,7 @@ const subcatData = useMemo(() => {
           </div>
         ) : (
           <div style={{ width: "100%", height: 300 }}>
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="99%" height="100%">
               <LineChart data={balanceTimeline.rows}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="date" hide={isMobile} />
