@@ -488,7 +488,7 @@ const subcatData = useMemo(() => {
 
 
   return (
-    <div style={{ padding: 12, display: "grid", gap: 12 }}>
+    <div style={{ padding: 12, display: "grid", gap: 12, width: "100%", boxSizing: "border-box", minWidth: 0, overflow: "hidden" }}>
 
       {/* ── Bloc performance ── */}
       {performance && (
@@ -1005,7 +1005,10 @@ const styles = {
     padding: 14,
     borderRadius: 16,
     border: "1px solid #e8dfc8",
-    background: "#fdfaf5"
+    background: "#fdfaf5",
+    width: "100%",
+    boxSizing: "border-box",
+    minWidth: 0,
   },
   label: { display: "grid", gap: 6, fontWeight: 800, fontSize: 12, color: "#111827" },
   input: { padding: "12px 12px", borderRadius: 12, border: "1px solid #d4c9ae", background: "#fdfaf5", fontSize: 15 },
