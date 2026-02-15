@@ -4,14 +4,17 @@ import { currentMonthKey, formatEUR, monthLabelFR } from "../utils";
 import { saveFilters, loadFilters } from "../filterStorage";
 
 
-export default function Stats({ 
+export default function Stats({
   expenses = [],
   categories = [],
   subcategoriesMap = {},
   banks = [],
   accountTypes = [],
   categoryColors = {},
-  filters = {}
+  filters = {},
+  performance = null,
+  perfScope = "7d",
+  setPerfScope = () => {},
 }) {
   // Filtres par défaut
   const defaultFilters = {
@@ -421,6 +424,72 @@ const subcatData = useMemo(() => {
 
   return (
     <div style={{ padding: 12, display: "grid", gap: 12 }}>
+
+      {/* ── Bloc performance ── */}
+      {performance && (
+        <div style={styles.card}>
+          {/* Chips de période */}
+          <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+            {[
+              { key: "7d",  label: "7 jours" },
+              { key: "1m",  label: "1 mois" },
+              { key: "1y",  label: "1 an" },
+              { key: "all", label: "Tout" },
+            ].map(s => (
+              <button
+                key={s.key}
+                onClick={() => setPerfScope(s.key)}
+                style={{
+                  padding: "5px 12px",
+                  borderRadius: 999,
+                  border: "1px solid #e5e7eb",
+                  background: perfScope === s.key ? "#111827" : "#f9fafb",
+                  color: perfScope === s.key ? "white" : "#374151",
+                  fontWeight: 700,
+                  fontSize: 12,
+                  cursor: "pointer",
+                }}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Delta et pourcentage */}
+          <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+            <span style={{
+              fontSize: 28,
+              fontWeight: 900,
+              color: performance.delta >= 0 ? "#16a34a" : "#dc2626",
+            }}>
+              {performance.delta >= 0 ? "↑" : "↓"}{" "}
+              {Math.abs(performance.delta).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
+            </span>
+            {performance.pct !== null && (
+              <span style={{
+                fontSize: 14,
+                fontWeight: 700,
+                color: performance.pct >= 0 ? "#16a34a" : "#dc2626",
+              }}>
+                ({performance.pct >= 0 ? "+" : ""}{performance.pct.toFixed(2)} %)
+              </span>
+            )}
+          </div>
+
+          {/* Solde de début et de fin */}
+          <div style={{ display: "flex", gap: 16, marginTop: 8 }}>
+            <div style={{ fontSize: 12, color: "#6b7280" }}>
+              <span style={{ fontWeight: 600 }}>Début :</span>{" "}
+              {performance.startBal.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
+            </div>
+            <div style={{ fontSize: 12, color: "#6b7280" }}>
+              <span style={{ fontWeight: 600 }}>Fin :</span>{" "}
+              {performance.endBal.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
+            </div>
+          </div>
+        </div>
+      )}
+
       <div style={styles.card}>
         <div style={{ display: "grid", gap: 10 }}>
           {/* Filters - responsive */}

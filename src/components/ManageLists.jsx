@@ -108,10 +108,21 @@ export default function ManageLists({
   onBackupNow,
   onRestoreNow,
   driveStatus,
+  syncStatus,
 }) {
 
   const usedBanks = (expenses || []).map((e) => e.bank);
   const usedTypes = (expenses || []).map((e) => e.accountType);
+
+  const syncLabel = syncStatus === "saving"
+    ? { icon: "🔄", text: "Synchronisation en cours…", color: "#6b7280" }
+    : syncStatus === "saved"
+    ? { icon: "☁️", text: "Sauvegarde automatique OK", color: "#16a34a" }
+    : syncStatus === "error"
+    ? { icon: "⚠️", text: "Erreur de synchronisation", color: "#dc2626" }
+    : null;
+
+  const lastSave = localStorage.getItem("budget_last_save");
 
   return (
     <div style={{ display: "grid", gap: 12 }}>
@@ -121,7 +132,23 @@ export default function ManageLists({
       <div style={styles.card}>
         <div style={styles.h2}>Sauvegarde Google Drive</div>
 
-        {driveStatus ? <div style={{ ...styles.muted, marginBottom: 8 }}>{driveStatus}</div> : null}
+        {driveStatus ? <div style={{ ...styles.muted, marginBottom: 6 }}>{driveStatus}</div> : null}
+
+        {syncLabel && (
+          <div style={{ fontSize: 13, color: syncLabel.color, marginBottom: 6, fontWeight: 600 }}>
+            {syncLabel.icon} {syncLabel.text}
+          </div>
+        )}
+
+        {lastSave && (
+          <div style={{ ...styles.muted, marginBottom: 10 }}>
+            Dernière sauvegarde : {new Date(lastSave).toLocaleString()}
+          </div>
+        )}
+
+        <div style={{ ...styles.muted, marginBottom: 12, fontSize: 12 }}>
+          La sauvegarde automatique se déclenche 4 secondes après chaque modification, si Drive est connecté.
+        </div>
 
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <button style={styles.btn} onClick={onConnectDrive} type="button">

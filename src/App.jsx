@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import TopBar from "./components/TopBar.jsx";
 import AddExpense from "./components/AddExpense.jsx";
 import ExpenseList from "./components/ExpenseList.jsx";
@@ -32,9 +32,17 @@ import Recurring from "./components/Recurring.jsx";
 import Forecast from "./components/Forecast.jsx";
 import ManageLists from "./components/ManageLists";
 import SubCategories from "./components/SubCategories.jsx";
+import ImportExport from "./components/ImportExport.jsx";
 import { loadBanks, saveBanks, loadAccountTypes, saveAccountTypes } from "./storage";
-import { initDriveAuth, isDriveConnected, requestDriveToken, uploadOrUpdateFile } from "./drive";
-import { downloadFileByName } from "./drive";
+import {
+  initDriveAuth,
+  isDriveConnected,
+  requestDriveToken,
+  requestDriveTokenSilent,
+  uploadOrUpdateFile,
+  downloadFileByName,
+  getBackupMetadata,
+} from "./drive";
 
 
 
@@ -136,6 +144,16 @@ export default function App() {
 
   // Google Drive status
   const [driveStatus, setDriveStatus] = useState("Drive : non connecté");
+  // "idle" | "saving" | "saved" | "error"
+  const [syncStatus, setSyncStatus] = useState("idle");
+  // Modal de conflit local vs Drive
+  const [conflictModal, setConflictModal] = useState(null); // null ou { drivePayload, driveDate, localDate }
+  // Ref pour le timer debounce
+  const debounceRef = useRef(null);
+  // Flag pour ignorer le premier render (on ne sauvegarde pas au démarrage)
+  const isFirstRender = useRef(true);
+  // Afficher le modal de connexion Google (premier lancement ou session expirée)
+  const [showDriveModal, setShowDriveModal] = useState(false);
 
 
   const [categoryColors, setCategoryColors] = useState(() => loadCategoryColors());
@@ -185,7 +203,7 @@ export default function App() {
 }, [expenses, perfScope]);
 
 
-// Google Drive backup initialisation 
+// Google Drive backup initialisation + tentative de reconnexion silencieuse
   useEffect(() => {
     (async () => {
       try {
@@ -194,12 +212,71 @@ export default function App() {
           scope: "https://www.googleapis.com/auth/drive.file",
         });
         setDriveStatus("Drive : prêt (non connecté)");
+
+        const driveEnabled = localStorage.getItem("budget_drive_enabled") === "true";
+
+        if (driveEnabled) {
+          // Déjà utilisé Drive → tentative silencieuse d'abord
+          try {
+            await requestDriveTokenSilent();
+            // Succès silencieux → sync transparente, pas de popup
+            await handlePostConnect();
+            return;
+          } catch {
+            // Session expirée → afficher le modal de reconnexion
+            setDriveStatus("Drive : reconnexion requise");
+          }
+        }
+
+        // Premier lancement OU session expirée → afficher le modal de connexion
+        setShowDriveModal(true);
+
       } catch (e) {
         console.error(e);
         setDriveStatus("Drive : script Google non chargé ❌");
       }
     })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ── Sauvegarde automatique avec debounce ──────────────────────────────────
+  // Se déclenche 4 secondes après la dernière modification des données,
+  // uniquement si Drive est connecté. Ignore le premier render.
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    if (!isDriveConnected()) return;
+
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+
+    setSyncStatus("saving");
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const payload = buildAutoBackupPayload();
+        await uploadOrUpdateFile({
+          name: "budget-pwa-backup.json",
+          mimeType: "application/json",
+          content: JSON.stringify(payload, null, 2),
+        });
+        localStorage.setItem("budget_last_save", new Date().toISOString());
+        setSyncStatus("saved");
+        // Repasser à "idle" après 3s pour ne pas afficher "sauvegardé" indéfiniment
+        setTimeout(() => setSyncStatus("idle"), 3000);
+      } catch (err) {
+        console.error("Sauvegarde auto Drive échouée :", err);
+        setSyncStatus("error");
+      }
+    }, 4000);
+
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  // On écoute toutes les données qui doivent être sauvegardées
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expenses, categories, banks, accountTypes, people, recurring,
+      categoryColors, subcategoriesMap, autoCatRules, forecastItems, forecastSettings]);
 
 
 
@@ -452,28 +529,9 @@ function updateExpense(id, patch) {
   );
 }
 
-async function connectDrive() {
-  try {
-    setDriveStatus("Drive : connexion en cours…");
-    await requestDriveToken();
-    setDriveStatus("Drive : connecté ✅");
-  } catch (e) {
-    console.error(e);
-    setDriveStatus("Drive : échec de connexion ❌");
-    alert("Connexion Google Drive échouée. Vérifie le Client ID OAuth et les domaines autorisés.");
-  }
-}
-
-async function backupNow() {
-  try {
-    setDriveStatus("Drive : sauvegarde en cours…");
-
-    if (!isDriveConnected()) {
-      await requestDriveToken();
-    }
-
-    // ⚠️ adapte si certains noms n'existent pas chez toi
-    const payload = {
+/** Construit le payload de backup avec toutes les données courantes */
+  function buildAutoBackupPayload() {
+    return {
       version: 2,
       exportedAt: new Date().toISOString(),
       data: {
@@ -483,7 +541,6 @@ async function backupNow() {
         accountTypes,
         people,
         recurring,
-        // paramètres / réglages
         categoryColors,
         subcategories: subcategoriesMap,
         autoCatRules,
@@ -491,61 +548,150 @@ async function backupNow() {
         forecastSettings,
       },
     };
-
-    const json = JSON.stringify(payload, null, 2);
-
-    await uploadOrUpdateFile({
-      name: "budget-pwa-backup.json",
-      mimeType: "application/json",
-      content: json,
-    });
-
-    setDriveStatus("Drive : sauvegarde OK ✅");
-    alert("Sauvegarde Google Drive OK ✅");
-  } catch (e) {
-    console.error(e);
-    setDriveStatus("Drive : sauvegarde échouée ❌");
-    alert("Sauvegarde échouée. Ouvre la console (F12) pour voir l’erreur.");
   }
-}
 
+  /** Applique un payload Drive dans le state React */
+  function applyDrivePayload(d) {
+    if (Array.isArray(d.expenses))     setExpenses(d.expenses);
+    if (Array.isArray(d.categories))   setCategories(d.categories);
+    if (Array.isArray(d.banks))        setBanks(d.banks);
+    if (Array.isArray(d.accountTypes)) setAccountTypes(d.accountTypes);
+    if (Array.isArray(d.people))       setPeople(d.people);
+    if (Array.isArray(d.recurring))    setRecurring(d.recurring);
+    if (d.categoryColors && typeof d.categoryColors === "object") setCategoryColors(d.categoryColors);
+    if (d.subcategories && typeof d.subcategories === "object")   setSubcategoriesMap(d.subcategories);
+    if (d.autoCatRules && typeof d.autoCatRules === "object")     setAutoCatRules(d.autoCatRules);
+    if (Array.isArray(d.forecastItems))                           setForecastItems(d.forecastItems);
+    if (d.forecastSettings && typeof d.forecastSettings === "object") setForecastSettings(d.forecastSettings);
+  }
 
-async function restoreFromDrive() {
-  try {
-    setDriveStatus("Drive : restauration en cours…");
+  /**
+   * Logique post-connexion partagée entre connectDrive() et la reconnexion silencieuse.
+   * Appelée une fois le token obtenu.
+   */
+  async function handlePostConnect() {
+    setDriveStatus("Drive : connecté ✅");
+    setShowDriveModal(false);
 
-    if (!isDriveConnected()) {
-      await requestDriveToken();
+    // 1) Chercher le fichier de backup sur Drive
+    const meta = await getBackupMetadata("budget-pwa-backup.json");
+
+    if (!meta) {
+      // Aucun backup sur Drive → sauvegarder l'état local immédiatement
+      setDriveStatus("Drive : connecté (aucun backup trouvé, sauvegarde en cours…)");
+      const payload = buildAutoBackupPayload();
+      await uploadOrUpdateFile({
+        name: "budget-pwa-backup.json",
+        mimeType: "application/json",
+        content: JSON.stringify(payload, null, 2),
+      });
+      localStorage.setItem("budget_last_save", new Date().toISOString());
+      setDriveStatus("Drive : connecté ✅ (backup créé)");
+      return;
     }
 
+    // 2) Comparer les dates : Drive vs local
+    const driveDate = new Date(meta.modifiedTime);
+    const localDate = new Date(localStorage.getItem("budget_last_save") || 0);
+    const hasLocalData = expenses.length > 0 || categories.length > 0;
+
+    if (!hasLocalData) {
+      // Pas de données locales → restaurer Drive directement
+      setDriveStatus("Drive : restauration en cours…");
+      const json = await downloadFileByName("budget-pwa-backup.json");
+      const parsed = JSON.parse(json);
+      if (parsed?.data) applyDrivePayload(parsed.data);
+      setDriveStatus("Drive : connecté ✅ (données restaurées)");
+      return;
+    }
+
+    // 3) Données locales ET backup Drive → afficher le modal de choix
     const json = await downloadFileByName("budget-pwa-backup.json");
     const parsed = JSON.parse(json);
+    if (!parsed?.data) {
+      setDriveStatus("Drive : connecté ✅");
+      return;
+    }
 
-    if (!parsed?.data) throw new Error("Format de sauvegarde invalide");
-
-    const d = parsed.data;
-
-    if (Array.isArray(d.expenses)) setExpenses(d.expenses);
-    if (Array.isArray(d.categories)) setCategories(d.categories);
-    if (Array.isArray(d.banks)) setBanks(d.banks);
-    if (Array.isArray(d.accountTypes)) setAccountTypes(d.accountTypes);
-    if (Array.isArray(d.people)) setPeople(d.people);
-    if (Array.isArray(d.recurring)) setRecurring(d.recurring);
-
-    if (d.categoryColors && typeof d.categoryColors === "object") setCategoryColors(d.categoryColors);
-    if (d.subcategories && typeof d.subcategories === "object") setSubcategoriesMap(d.subcategories);
-    if (d.autoCatRules && typeof d.autoCatRules === "object") setAutoCatRules(d.autoCatRules);
-    if (Array.isArray(d.forecastItems)) setForecastItems(d.forecastItems);
-    if (d.forecastSettings && typeof d.forecastSettings === "object") setForecastSettings(d.forecastSettings);
-
-    setDriveStatus("Drive : restauration OK ✅");
-    alert("Restauration terminée !");
-  } catch (e) {
-    console.error(e);
-    setDriveStatus("Drive : restauration échouée ❌");
-    alert("Restauration échouée. Aucun backup trouvé ou format invalide.");
+    setConflictModal({
+      drivePayload: parsed.data,
+      driveDate,
+      driveExportedAt: parsed.exportedAt,
+      localDate,
+    });
   }
-}
+
+  async function connectDrive() {
+    try {
+      setDriveStatus("Drive : connexion en cours…");
+      setShowDriveModal(false);
+      await requestDriveToken();
+
+      // Mémoriser que l'utilisateur a activé Drive → reconnexion silencieuse au prochain démarrage
+      localStorage.setItem("budget_drive_enabled", "true");
+
+      await handlePostConnect();
+
+    } catch (e) {
+      console.error(e);
+      setDriveStatus("Drive : échec de connexion ❌");
+      alert("Connexion Google Drive échouée. Vérifie le Client ID OAuth et les domaines autorisés.");
+    }
+  }
+
+  async function backupNow() {
+    try {
+      setDriveStatus("Drive : sauvegarde en cours…");
+      setSyncStatus("saving");
+
+      if (!isDriveConnected()) {
+        await requestDriveToken();
+      }
+
+      const payload = buildAutoBackupPayload();
+      await uploadOrUpdateFile({
+        name: "budget-pwa-backup.json",
+        mimeType: "application/json",
+        content: JSON.stringify(payload, null, 2),
+      });
+
+      const now = new Date().toISOString();
+      localStorage.setItem("budget_last_save", now);
+      setDriveStatus("Drive : sauvegarde OK ✅");
+      setSyncStatus("saved");
+      setTimeout(() => setSyncStatus("idle"), 3000);
+      alert("Sauvegarde Google Drive OK ✅");
+    } catch (e) {
+      console.error(e);
+      setDriveStatus("Drive : sauvegarde échouée ❌");
+      setSyncStatus("error");
+      alert("Sauvegarde échouée. Ouvre la console (F12) pour voir l'erreur.");
+    }
+  }
+
+
+  async function restoreFromDrive() {
+    try {
+      setDriveStatus("Drive : restauration en cours…");
+
+      if (!isDriveConnected()) {
+        await requestDriveToken();
+      }
+
+      const json = await downloadFileByName("budget-pwa-backup.json");
+      const parsed = JSON.parse(json);
+
+      if (!parsed?.data) throw new Error("Format de sauvegarde invalide");
+
+      applyDrivePayload(parsed.data);
+      setDriveStatus("Drive : restauration OK ✅");
+      alert("Restauration terminée !");
+    } catch (e) {
+      console.error(e);
+      setDriveStatus("Drive : restauration échouée ❌");
+      alert("Restauration échouée. Aucun backup trouvé ou format invalide.");
+    }
+  }
 
 
 
@@ -560,69 +706,131 @@ async function restoreFromDrive() {
   return (
     <div style={styles.page}>
       <div style={styles.header}>
-        <div style={styles.title}>STATERA</div>
-        <div style={styles.subtitle}>Offline • Données sur ton téléphone • Export CSV • v12012026.01</div>
-      <div style={{ padding: 12, border: "1px solid #eee", borderRadius: 12, marginBottom: 12 }}>
-        <div style={{ fontWeight: 700, marginBottom: 10 }}>Performance globale</div>
-
-        {/* Chips */}
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
-          {[
-            ["7d", "7j"],
-            ["1m", "1 mois"],
-            ["1y", "1 an"],
-            ["all", "All time"],
-          ].map(([key, label]) => {
-            const active = perfScope === key;
-            return (
-              <button
-                key={key}
-                onClick={() => setPerfScope(key)}
-                style={{
-                  padding: "6px 10px",
-                  borderRadius: 999,
-                  border: "1px solid #ddd",
-                  background: active ? "#111" : "white",
-                  color: active ? "white" : "#111",
-                  cursor: "pointer",
-                  fontSize: 13,
-                }}
-              >
-                {label}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Résultats */}
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline" }}>
-          <div>
-            <div style={{ fontSize: 13, color: "#666" }}>Gain / perte</div>
-            <div style={{ fontSize: 22, fontWeight: 800 }}>
-              {formatSignedEUR(performance.delta)}
-            </div>
-          </div>
-
-          <div style={{ textAlign: "right" }}>
-            <div style={{ fontSize: 13, color: "#666" }}>%</div>
-            <div style={{ fontSize: 18, fontWeight: 700 }}>
-              {formatSignedPct(performance.pct)}
-            </div>
+        {/* Ligne 1 : titre + statut Drive */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={styles.title}>STATERA</div>
+          <div style={{ fontSize: 13, fontWeight: 600 }}>
+            {syncStatus === "saving" && <span style={{ color: "#6b7280" }}>🔄 Sync…</span>}
+            {syncStatus === "saved"  && <span style={{ color: "#16a34a" }}>☁️ Sauvegardé</span>}
+            {syncStatus === "error"  && <span style={{ color: "#dc2626" }}>⚠️ Erreur sync</span>}
+            {syncStatus === "idle"   && isDriveConnected() && <span style={{ color: "#9ca3af" }}>☁️</span>}
           </div>
         </div>
 
-        <div style={{ fontSize: 12, color: "#777", marginTop: 8 }}>
-          Du {new Date(performance.startDate).toLocaleDateString()} à aujourd’hui
-        </div>
-      </div>
+        {/* Ligne 2 : solde ce mois + flèche colorée + % */}
+        {(() => {
+          const now = new Date();
+          const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+          let income = 0, expenseGross = 0, reimb = 0, tIn = 0, tOut = 0;
+          for (const e of expenses) {
+            if (!e.date?.startsWith(monthKey)) continue;
+            const a = Number(e.amount || 0);
+            if (e.kind === "income")         income += a;
+            if (e.kind === "expense")        expenseGross += a;
+            if (e.kind === "reimbursement")  reimb += a;
+            if (e.kind === "transfer_in")    tIn += a;
+            if (e.kind === "transfer_out")   tOut += a;
+          }
+          const solde = income + reimb + tIn - expenseGross - tOut;
+          const isPositive = solde >= 0;
+          const arrow = isPositive ? "↑" : "↓";
+          const color = isPositive ? "#16a34a" : "#dc2626";
+          const mois = now.toLocaleDateString("fr-FR", { month: "long" });
 
-      
-      
-      
-      
+          return (
+            <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 4 }}>
+              <span style={{ fontSize: 12, color: "#9ca3af", textTransform: "capitalize" }}>{mois}</span>
+              <span style={{ fontSize: 20, fontWeight: 900, color }}>
+                {arrow} {Math.abs(solde).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
+              </span>
+              {expenseGross > 0 && (
+                <span style={{ fontSize: 12, color: "#6b7280" }}>
+                  {expenseGross.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} € dépensés
+                </span>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       <TopBar tab={tab} setTab={setTab} />
+
+      {/* ── Modal connexion Google Drive ── */}
+      {showDriveModal && (
+        <div style={{
+          position: "fixed", inset: 0,
+          background: "rgba(0,0,0,0.45)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          padding: 16, zIndex: 9999
+        }}>
+          <div style={{
+            width: "100%", maxWidth: 400,
+            background: "white", borderRadius: 20,
+            border: "1px solid #e5e7eb", padding: 24,
+            display: "grid", gap: 16, textAlign: "center"
+          }}>
+            <div style={{ fontSize: 40 }}>☁️</div>
+
+            <div>
+              <h3 style={{ margin: "0 0 8px", fontSize: 20 }}>
+                {localStorage.getItem("budget_drive_enabled") === "true"
+                  ? "Reconnecte-toi à Google"
+                  : "Sauvegarde automatique"}
+              </h3>
+              <p style={{ margin: 0, color: "#6b7280", fontSize: 14, lineHeight: 1.5 }}>
+                {localStorage.getItem("budget_drive_enabled") === "true"
+                  ? "Ta session Google a expiré. Reconnecte-toi pour retrouver et synchroniser tes données."
+                  : "Connecte ton compte Google pour sauvegarder tes données automatiquement et les retrouver sur tous tes appareils."}
+              </p>
+            </div>
+
+            <button
+              onClick={connectDrive}
+              style={{
+                padding: "14px 16px",
+                borderRadius: 12,
+                border: "none",
+                background: "#2563eb",
+                color: "white",
+                fontWeight: 800,
+                fontSize: 16,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 8,
+              }}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="white">
+                <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+              </svg>
+              Se connecter avec Google
+            </button>
+
+            <button
+              onClick={() => setShowDriveModal(false)}
+              style={{
+                padding: "10px 16px",
+                borderRadius: 12,
+                border: "1px solid #e5e7eb",
+                background: "transparent",
+                color: "#6b7280",
+                fontSize: 14,
+                cursor: "pointer",
+              }}
+            >
+              Plus tard
+            </button>
+
+            <div style={{ fontSize: 11, color: "#9ca3af" }}>
+              Sans connexion, tes données sont sauvegardées uniquement sur cet appareil.
+            </div>
+          </div>
+        </div>
+      )}
 
 
       {tab === "settings" && (
@@ -637,6 +845,7 @@ async function restoreFromDrive() {
           onBackupNow={backupNow}
           onRestoreNow={restoreFromDrive}
           driveStatus={driveStatus}
+          syncStatus={syncStatus}
           />
 
         <div style={{ height: 12 }} />
@@ -656,6 +865,16 @@ async function restoreFromDrive() {
           rules={autoCatRules}
           setRules={setAutoCatRules}
         />
+
+        <div style={{ height: 12 }} />
+
+        <ImportExport
+          expenses={expenses}
+          categories={safeCategories}
+          banks={banks}
+          accountTypes={accountTypes}
+          onImport={(rows) => setExpenses(prev => [...rows, ...prev])}
+        />
         </>
       )}
     
@@ -672,6 +891,13 @@ async function restoreFromDrive() {
           onAdd={addExpense}
           banks={banks}
           accountTypes={accountTypes}
+          onAddCategory={(name) => setCategories(prev => [...prev, name])}
+          onAddBank={(name) => setBanks(prev => [...prev, name])}
+          onAddAccountType={(name) => setAccountTypes(prev => [...prev, name])}
+          onAddSubcategory={(cat, name) => setSubcategoriesMap(prev => ({
+            ...prev,
+            [cat]: [...(prev[cat] || []), name]
+          }))}
         />
       )}
 
@@ -682,6 +908,7 @@ async function restoreFromDrive() {
           expenses={expenses}
           categories={safeCategories}
           subcategoriesMap={subcategoriesMap}
+          categoryColors={categoryColors}
           people={people}
           onDelete={deleteExpense}
           onUpdate={updateExpense}
@@ -702,6 +929,9 @@ async function restoreFromDrive() {
           filters={{ bank: "ALL", accountType: "ALL", category: "ALL" }}
           banks={banks}
           accountTypes={accountTypes}
+          performance={performance}
+          perfScope={perfScope}
+          setPerfScope={setPerfScope}
         />
       )}
 
@@ -748,6 +978,103 @@ async function restoreFromDrive() {
 
 
 
+
+        {/* ── Modal conflit Drive vs Local ── */}
+        {conflictModal && (
+          <div style={{
+            position: "fixed", inset: 0,
+            background: "rgba(0,0,0,0.45)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            padding: 16, zIndex: 9999
+          }}>
+            <div style={{
+              width: "100%", maxWidth: 480,
+              background: "white", borderRadius: 18,
+              border: "1px solid #e5e7eb", padding: 20,
+              display: "grid", gap: 14
+            }}>
+              <h3 style={{ margin: 0, fontSize: 18 }}>☁️ Données trouvées sur Drive</h3>
+
+              <p style={{ margin: 0, color: "#374151", fontSize: 14 }}>
+                Il y a des données à la fois <b>sur cet appareil</b> et <b>sur Google Drive</b>.
+                Lesquelles veux-tu conserver ?
+              </p>
+
+              <div style={{
+                display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10,
+                background: "#f9fafb", borderRadius: 12, padding: 12,
+                fontSize: 13, color: "#6b7280"
+              }}>
+                <div>
+                  <div style={{ fontWeight: 700, color: "#111827", marginBottom: 4 }}>📱 Cet appareil</div>
+                  <div>{expenses.length} opération(s)</div>
+                  <div style={{ marginTop: 4 }}>
+                    {localStorage.getItem("budget_last_save")
+                      ? `Dernière sauvegarde : ${new Date(localStorage.getItem("budget_last_save")).toLocaleString()}`
+                      : "Date inconnue"}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontWeight: 700, color: "#111827", marginBottom: 4 }}>☁️ Google Drive</div>
+                  <div>{conflictModal.drivePayload?.expenses?.length ?? "?"} opération(s)</div>
+                  <div style={{ marginTop: 4 }}>
+                    {conflictModal.driveExportedAt
+                      ? `Sauvegardé le : ${new Date(conflictModal.driveExportedAt).toLocaleString()}`
+                      : `Modifié le : ${conflictModal.driveDate.toLocaleString()}`}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gap: 8 }}>
+                <button
+                  onClick={() => {
+                    applyDrivePayload(conflictModal.drivePayload);
+                    setDriveStatus("Drive : connecté ✅ (données Drive chargées)");
+                    setConflictModal(null);
+                  }}
+                  style={{
+                    padding: "12px 16px", borderRadius: 12,
+                    border: "none", background: "#2563eb",
+                    color: "white", fontWeight: 800, cursor: "pointer", fontSize: 15
+                  }}
+                >
+                  ☁️ Utiliser les données Drive
+                </button>
+
+                <button
+                  onClick={async () => {
+                    setConflictModal(null);
+                    setDriveStatus("Drive : sauvegarde locale en cours…");
+                    try {
+                      const payload = buildAutoBackupPayload();
+                      await uploadOrUpdateFile({
+                        name: "budget-pwa-backup.json",
+                        mimeType: "application/json",
+                        content: JSON.stringify(payload, null, 2),
+                      });
+                      localStorage.setItem("budget_last_save", new Date().toISOString());
+                      setDriveStatus("Drive : connecté ✅ (données locales sauvegardées)");
+                    } catch (err) {
+                      console.error(err);
+                      setDriveStatus("Drive : sauvegarde échouée ❌");
+                    }
+                  }}
+                  style={{
+                    padding: "12px 16px", borderRadius: 12,
+                    border: "1px solid #111827", background: "white",
+                    fontWeight: 800, cursor: "pointer", fontSize: 15
+                  }}
+                >
+                  📱 Garder les données de cet appareil
+                </button>
+              </div>
+
+              <div style={{ fontSize: 12, color: "#9ca3af", textAlign: "center" }}>
+                L'autre version sera écrasée et ne pourra pas être récupérée.
+              </div>
+            </div>
+          </div>
+        )}
 
         {showWipeModal && (
           <div style={{
@@ -851,5 +1178,4 @@ const styles = {
   },
   header: { padding: "14px 14px 6px 14px" },
   title: { fontSize: 22, fontWeight: 950, color: "#111827" },
-  subtitle: { color: "#6b7280", fontSize: 12, marginTop: 2 }
 };

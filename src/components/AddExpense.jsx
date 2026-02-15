@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { toISODate } from "../utils";
 
-export default function AddExpense({ categories, subcategoriesMap = {}, banks, accountTypes, people = [], expenses = [], onAdd }) {
+export default function AddExpense({ categories, subcategoriesMap = {}, banks, accountTypes, people = [], expenses = [], onAdd, onAddCategory, onAddBank, onAddAccountType, onAddSubcategory }) {
   const today = useMemo(() => toISODate(new Date()), []);
   const [amount, setAmount] = useState("");
   const [category, setCategory] = useState(categories[0] ?? "Autres");
@@ -15,6 +15,28 @@ export default function AddExpense({ categories, subcategoriesMap = {}, banks, a
   const [kind, setKind] = useState("expense");
   const [person, setPerson] = useState("");
   const [justAdded, setJustAdded] = useState(false);
+
+  // ── Modale "Ajouter un nouveau..." ──────────────────────────────────────────
+  // field: "category" | "bank" | "accountType" | "bankTo" | "accountTypeTo" | null
+  const [quickAdd, setQuickAdd] = useState(null); // { field, value }
+
+  function openQuickAdd(field) {
+    setQuickAdd({ field, value: "" });
+  }
+
+  function confirmQuickAdd() {
+    if (!quickAdd) return;
+    const name = quickAdd.value.trim();
+    if (!name) return;
+    const { field } = quickAdd;
+    if (field === "category")     { onAddCategory?.(name);     setCategory(name); }
+    if (field === "bank")         { onAddBank?.(name);          setBank(name); }
+    if (field === "accountType")  { onAddAccountType?.(name);   setAccountType(name); }
+    if (field === "bankTo")        { onAddBank?.(name);                setToBank(name); }
+    if (field === "accountTypeTo") { onAddAccountType?.(name);         setToAccountType(name); }
+    if (field === "subcategory")   { onAddSubcategory?.(category, name); setSubcategory(name); }
+    setQuickAdd(null);
+  }
 
 const expenseOptions = useMemo(() => {
   return (Array.isArray(expenses) ? expenses : [])
@@ -180,8 +202,16 @@ useEffect(() => {
         {kind !== "transfer" && (
           <label style={styles.label}>
             Catégorie
-            <select value={category} onChange={(e) => setCategory(e.target.value)} style={styles.input}>
+            <select
+              value={category}
+              onChange={(e) => {
+                if (e.target.value === "__add_new__") openQuickAdd("category");
+                else setCategory(e.target.value);
+              }}
+              style={styles.input}
+            >
               {categories.map(c => <option key={c} value={c}>{c}</option>)}
+              <option value="__add_new__">➕ Nouvelle catégorie…</option>
             </select>
           </label>
         )}
@@ -191,7 +221,10 @@ useEffect(() => {
             Sous-catégorie (optionnel)
             <select
               value={subcategory}
-              onChange={(e) => setSubcategory(e.target.value)}
+              onChange={(e) => {
+                if (e.target.value === "__add_new__") openQuickAdd("subcategory");
+                else setSubcategory(e.target.value);
+              }}
               style={styles.input}
             >
               <option value="">—</option>
@@ -200,6 +233,7 @@ useEffect(() => {
                   {sc}
                 </option>
               ))}
+              <option value="__add_new__">➕ Nouvelle sous-catégorie…</option>
             </select>
           </label>
         )}
@@ -228,23 +262,39 @@ useEffect(() => {
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <label style={styles.label}>
                 Banque (source)
-                <select value={bank} onChange={(e) => setBank(e.target.value)} style={styles.input}>
+                <select
+                  value={bank}
+                  onChange={(e) => {
+                    if (e.target.value === "__add_new__") openQuickAdd("bank");
+                    else setBank(e.target.value);
+                  }}
+                  style={styles.input}
+                >
                   <option value="">—</option>
                   {(banks || []).map((b) => (
                     <option key={b} value={b}>{b}</option>
                   ))}
                   {bank && !(banks || []).includes(bank) && <option value={bank}>{bank}</option>}
+                  <option value="__add_new__">➕ Nouvelle banque…</option>
                 </select>
               </label>
 
               <label style={styles.label}>
                 Banque (destination)
-                <select value={toBank} onChange={(e) => setToBank(e.target.value)} style={styles.input}>
+                <select
+                  value={toBank}
+                  onChange={(e) => {
+                    if (e.target.value === "__add_new__") openQuickAdd("bankTo");
+                    else setToBank(e.target.value);
+                  }}
+                  style={styles.input}
+                >
                   <option value="">—</option>
                   {(banks || []).map((b) => (
                     <option key={b} value={b}>{b}</option>
                   ))}
                   {toBank && !(banks || []).includes(toBank) && <option value={toBank}>{toBank}</option>}
+                  <option value="__add_new__">➕ Nouvelle banque…</option>
                 </select>
               </label>
             </div>
@@ -252,23 +302,39 @@ useEffect(() => {
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <label style={styles.label}>
                 Type de compte (source)
-                <select value={accountType} onChange={(e) => setAccountType(e.target.value)} style={styles.input}>
+                <select
+                  value={accountType}
+                  onChange={(e) => {
+                    if (e.target.value === "__add_new__") openQuickAdd("accountType");
+                    else setAccountType(e.target.value);
+                  }}
+                  style={styles.input}
+                >
                   <option value="">—</option>
                   {(accountTypes || []).map((t) => (
                     <option key={t} value={t}>{t}</option>
                   ))}
                   {accountType && !(accountTypes || []).includes(accountType) && <option value={accountType}>{accountType}</option>}
+                  <option value="__add_new__">➕ Nouveau type…</option>
                 </select>
               </label>
 
               <label style={styles.label}>
                 Type de compte (destination)
-                <select value={toAccountType} onChange={(e) => setToAccountType(e.target.value)} style={styles.input}>
+                <select
+                  value={toAccountType}
+                  onChange={(e) => {
+                    if (e.target.value === "__add_new__") openQuickAdd("accountTypeTo");
+                    else setToAccountType(e.target.value);
+                  }}
+                  style={styles.input}
+                >
                   <option value="">—</option>
                   {(accountTypes || []).map((t) => (
                     <option key={t} value={t}>{t}</option>
                   ))}
                   {toAccountType && !(accountTypes || []).includes(toAccountType) && <option value={toAccountType}>{toAccountType}</option>}
+                  <option value="__add_new__">➕ Nouveau type…</option>
                 </select>
               </label>
             </div>
@@ -277,23 +343,39 @@ useEffect(() => {
           <>
             <label style={styles.label}>
               Banque
-              <select value={bank} onChange={(e) => setBank(e.target.value)} style={styles.input}>
+              <select
+                value={bank}
+                onChange={(e) => {
+                  if (e.target.value === "__add_new__") openQuickAdd("bank");
+                  else setBank(e.target.value);
+                }}
+                style={styles.input}
+              >
                 <option value="">—</option>
                 {(banks || []).map((b) => (
                   <option key={b} value={b}>{b}</option>
                 ))}
                 {bank && !(banks || []).includes(bank) && <option value={bank}>{bank}</option>}
+                <option value="__add_new__">➕ Nouvelle banque…</option>
               </select>
             </label>
 
             <label style={styles.label}>
               Type de compte
-              <select value={accountType} onChange={(e) => setAccountType(e.target.value)} style={styles.input}>
+              <select
+                value={accountType}
+                onChange={(e) => {
+                  if (e.target.value === "__add_new__") openQuickAdd("accountType");
+                  else setAccountType(e.target.value);
+                }}
+                style={styles.input}
+              >
                 <option value="">—</option>
                 {(accountTypes || []).map((t) => (
                   <option key={t} value={t}>{t}</option>
                 ))}
                 {accountType && !(accountTypes || []).includes(accountType) && <option value={accountType}>{accountType}</option>}
+                <option value="__add_new__">➕ Nouveau type…</option>
               </select>
             </label>
           </>
@@ -340,6 +422,74 @@ useEffect(() => {
 
 
       </form>
+
+      {/* ── Modale "Ajouter un nouveau..." ── */}
+      {quickAdd && (
+        <div style={{
+          position: "fixed", inset: 0,
+          background: "rgba(0,0,0,0.4)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          padding: 16, zIndex: 9999,
+        }}>
+          <div style={{
+            width: "100%", maxWidth: 360,
+            background: "white", borderRadius: 18,
+            border: "1px solid #e5e7eb", padding: 20,
+            display: "grid", gap: 14,
+          }}>
+            <h3 style={{ margin: 0, fontSize: 17 }}>
+              {quickAdd.field === "category"     && "Nouvelle catégorie"}
+              {quickAdd.field === "bank"         && "Nouvelle banque"}
+              {quickAdd.field === "bankTo"       && "Nouvelle banque"}
+              {quickAdd.field === "accountType"  && "Nouveau type de compte"}
+              {quickAdd.field === "accountTypeTo" && "Nouveau type de compte"}
+              {quickAdd.field === "subcategory"   && `Nouvelle sous-catégorie (${category})`}
+            </h3>
+
+            <input
+              autoFocus
+              placeholder="Nom…"
+              value={quickAdd.value}
+              onChange={(e) => setQuickAdd(q => ({ ...q, value: e.target.value }))}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); confirmQuickAdd(); } }}
+              style={{
+                padding: "12px",
+                borderRadius: 12,
+                border: "1px solid #d1d5db",
+                fontSize: 16,
+                outline: "none",
+              }}
+            />
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <button
+                onClick={() => setQuickAdd(null)}
+                style={{
+                  padding: "11px", borderRadius: 12,
+                  border: "1px solid #e5e7eb", background: "white",
+                  fontWeight: 700, fontSize: 14, cursor: "pointer",
+                }}
+              >
+                Annuler
+              </button>
+              <button
+                onClick={confirmQuickAdd}
+                disabled={!quickAdd.value.trim()}
+                style={{
+                  padding: "11px", borderRadius: 12,
+                  border: "none",
+                  background: quickAdd.value.trim() ? "#111827" : "#d1d5db",
+                  color: "white",
+                  fontWeight: 800, fontSize: 14,
+                  cursor: quickAdd.value.trim() ? "pointer" : "not-allowed",
+                }}
+              >
+                Ajouter
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

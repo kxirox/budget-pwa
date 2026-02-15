@@ -5,9 +5,14 @@ export function buildBackupPayload({
   accountTypes,
   people,
   recurring,
+  categoryColors,
+  subcategories,
+  autoCatRules,
+  forecastItems,
+  forecastSettings,
 }) {
   return {
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
     data: {
       expenses,
@@ -16,6 +21,11 @@ export function buildBackupPayload({
       accountTypes,
       people,
       recurring,
+      categoryColors,
+      subcategories,
+      autoCatRules,
+      forecastItems,
+      forecastSettings,
     },
   };
 }

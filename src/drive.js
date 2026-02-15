@@ -38,6 +38,18 @@ export function isDriveConnected() {
   return !!accessToken;
 }
 
+/** Retourne le token courant (null si non connecté) */
+export function getAccessToken() {
+  return accessToken;
+}
+
+/** Retourne uniquement les métadonnées du fichier de backup (id, name, modifiedTime)
+ *  sans télécharger le contenu — utile pour comparer les dates avant de restaurer.
+ */
+export async function getBackupMetadata(name) {
+  return findFileByName(name); // retourne { id, name, modifiedTime } ou null
+}
+
 export function requestDriveToken() {
   return new Promise((resolve, reject) => {
     if (!tokenClient) return reject(new Error("Drive auth not initialized"));
@@ -50,6 +62,47 @@ export function requestDriveToken() {
       }
     };
     tokenClient.requestAccessToken({ prompt: "consent" });
+  });
+}
+
+/**
+ * Tente d'obtenir un token sans afficher de popup (mode silencieux).
+ * Résout avec le token si Google a une session active,
+ * rejette dans les autres cas (session expirée, pas de session, timeout).
+ * Timeout 5s pour éviter de rester bloqué si Google ne répond pas.
+ */
+export function requestDriveTokenSilent() {
+  return new Promise((resolve, reject) => {
+    if (!tokenClient) return reject(new Error("Drive auth not initialized"));
+
+    let settled = false;
+    const done = (fn, val) => {
+      if (settled) return;
+      settled = true;
+      fn(val);
+    };
+
+    // Timeout de sécurité : si Google ne répond pas en 5s, on rejette
+    const timer = setTimeout(() => done(reject, new Error("Silent auth timeout")), 5000);
+
+    tokenClient.callback = (resp) => {
+      clearTimeout(timer);
+      if (resp?.access_token) {
+        accessToken = resp.access_token;
+        done(resolve, accessToken);
+      } else {
+        // resp.error peut être "interaction_required", "access_denied", etc.
+        done(reject, new Error(resp?.error || "Silent auth failed"));
+      }
+    };
+
+    tokenClient.error_callback = (err) => {
+      clearTimeout(timer);
+      done(reject, new Error(err?.type || "Silent auth error"));
+    };
+
+    // prompt: "" = pas de popup, Google utilise la session existante
+    tokenClient.requestAccessToken({ prompt: "" });
   });
 }
 

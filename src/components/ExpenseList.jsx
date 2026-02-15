@@ -1,15 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { currentMonthKey, formatEUR, monthLabelFR, toCSV, toISODate } from "../utils";
-import { parseExpensesCSV } from "../importCsv";
-import { parseCreditMutuelWorkbook } from "../importCreditMutuel";
+import { currentMonthKey, formatEUR, monthLabelFR } from "../utils";
 import { saveFilters, loadFilters } from "../filterStorage";
 
 // A SUPPRIMER SI PAS DE BUG LORS DU RUN
 // import ImportCreditMutuel from "./ImportCreditMutuel";
 
 
-export default function ExpenseList({ expenses, categories, subcategoriesMap = {}, banks, accountTypes, people = [], onDelete, onUpdate, onImport, onCreateReimbursement, onOpenWipeModal }) {
+export default function ExpenseList({ expenses, categories, subcategoriesMap = {}, categoryColors = {}, banks, accountTypes, people = [], onDelete, onUpdate, onImport, onCreateReimbursement, onOpenWipeModal }) {
   // Filtres par défaut
   const defaultFilters = {
     month: "ALL",
@@ -52,12 +50,6 @@ export default function ExpenseList({ expenses, categories, subcategoriesMap = {
     };
     saveFilters("history", currentFilters);
   }, [month, cat, bankFilter, accountTypeFilter, q, mode, from, to, selectedTypes]);
-
-  // Import Crédit Mutuel (Excel)
-  const [cmBank, setCmBank] = useState(() => (banks?.includes("Crédit Mutuel") ? "Crédit Mutuel" : (banks?.[0] ?? "Crédit Mutuel")));
-  const [cmAccountType, setCmAccountType] = useState(() => (accountTypes?.[0] ?? "Compte courant"));
-  const [cmDefaultCategory, setCmDefaultCategory] = useState(() => (categories?.includes("Autres") ? "Autres" : (categories?.[0] ?? "Autres")));
-  const [cmLastInfo, setCmLastInfo] = useState("");
 
   // Helper pour ajuster la taille de l'application a un mobile
   const isMobile = typeof window !== "undefined" && window.innerWidth < 700;
@@ -168,116 +160,6 @@ const totals = useMemo(() => {
     net: income + reimbursements + transfersIn - expenseGross - transfersOut
   };
 }, [filtered, reimburseByExpenseId]);
-
-  function exportCSV() {
-    const csv = toCSV(filtered);
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `depenses_${month}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
-  function importCSVFile(file) {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const text = String(reader.result || "");
-      const { rows, errors } = parseExpensesCSV(text);
-
-      if (errors.length) {
-        alert("Erreurs dans le CSV :\n\n" + errors.slice(0, 12).join("\n") + (errors.length > 12 ? "\n..." : ""));
-        return;
-      }
-      if (rows.length === 0) {
-        alert("Aucune dépense importée.");
-        return;
-      }
-
-      const ok = confirm(`Importer ${rows.length} dépense(s) ? (elles seront ajoutées à l'historique)`);
-      if (!ok) return;
-
-    // Ajoute au début
-    // IMPORTANT: onUpdate ne sert pas ici, on a besoin d’un setter => on passe par un callback onImport
-    // => on va ajouter une prop onImport ci-dessous.
-      onImport(rows);
-      console.log("IMPORT pushed rows:", rows.length, rows[0]);
-      alert("Import terminé ✅");
-    };
-    reader.readAsText(file, "utf-8");
-  }
-
-  function signatureFor(e) {
-    const date = String(e.date || "").trim();
-    const kind = String(e.kind || "").trim();
-    const amount = Number(e.amount || 0);
-    const note = String(e.note || "").trim().toLowerCase();
-    return `${date}|${kind}|${amount}|${note}`;
-  }
-
-  function importCreditMutuelFile(file) {
-    const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        const buf = reader.result;
-        const { rows, errors, meta } = parseCreditMutuelWorkbook(buf, {
-          defaultBank: cmBank,
-          defaultAccountType: cmAccountType,
-          defaultCategory: cmDefaultCategory
-        });
-
-        if (errors?.length) {
-          alert(
-            "Erreurs lors de la lecture Crédit Mutuel :\n\n" +
-              errors.slice(0, 12).join("\n") +
-              (errors.length > 12 ? "\n..." : "")
-          );
-          return;
-        }
-        if (!rows || rows.length === 0) {
-          alert("Aucune transaction détectée dans ce fichier.");
-          return;
-        }
-
-        // Anti-doublons : date + kind + amount + note
-        const existing = new Set(expenses.map(signatureFor));
-        const unique = [];
-        let skipped = 0;
-        for (const r of rows) {
-          const sig = signatureFor(r);
-          if (existing.has(sig)) {
-            skipped++;
-          } else {
-            existing.add(sig);
-            unique.push(r);
-          }
-        }
-
-        setCmLastInfo(
-          `Onglet détecté : ${meta?.sheetName || "?"} • ${rows.length} ligne(s) • ${unique.length} à importer • ${skipped} doublon(s)`
-        );
-
-        if (unique.length === 0) {
-          alert("Toutes les transactions semblent déjà présentes (doublons). ✅");
-          return;
-        }
-
-        const ok = confirm(
-          `Crédit Mutuel : ${unique.length} transaction(s) à importer (doublons ignorés : ${skipped}).\n\nContinuer ?`
-        );
-        if (!ok) return;
-
-        onImport(unique);
-        alert("Import Crédit Mutuel terminé ✅");
-      } catch (e) {
-        console.error(e);
-        alert("Erreur inattendue pendant l'import Crédit Mutuel.");
-      }
-    };
-    reader.readAsArrayBuffer(file);
-  }
-
 
   // ---- EDIT MODE ----
   const [editingId, setEditingId] = useState(null);
@@ -446,14 +328,49 @@ function makeId() {
 
 //fonction remplacant ce qu'il y a dans le filtrered.map
 const renderItem = useCallback((e) => {
+  // ── Couleur de la bande gauche (catégorie) ──
+  const catColor = categoryColors[e.category] || "#e5e7eb";
+
+  // ── Couleur et badge selon le type d'opération ──
+  let amountColor, kindBadge;
+  if (e.kind === "income") {
+    amountColor = "#16a34a";
+    kindBadge = { label: "Revenu", bg: "#dcfce7", color: "#16a34a" };
+  } else if (e.kind === "reimbursement") {
+    amountColor = "#16a34a";
+    kindBadge = { label: "↩ Remb.", bg: "#dcfce7", color: "#16a34a" };
+  } else if (e.kind === "transfer_in") {
+    amountColor = "#2563eb";
+    kindBadge = { label: "⇄ Virement", bg: "#dbeafe", color: "#2563eb" };
+  } else if (e.kind === "transfer_out") {
+    amountColor = "#6b7280";
+    kindBadge = { label: "⇄ Virement", bg: "#f3f4f6", color: "#6b7280" };
+  } else {
+    // expense
+    amountColor = "#dc2626";
+    kindBadge = null;
+  }
+
   return (
-    <div style={styles.item}>
-      <div style={{ display: "grid", gap: 4 }}>
-        <div style={{ fontWeight: 800, fontSize: 16 }}>
-          {formatEUR(
-            (e.kind === "expense" || e.kind === "transfer_out")
-              ? -Number(e.amount || 0)
-              : Number(e.amount || 0)
+    <div style={{ ...styles.item, borderLeft: `4px solid ${catColor}`, paddingLeft: 12 }}>
+      <div style={{ display: "grid", gap: 4, minWidth: 0, flex: 1 }}>
+        {/* Ligne 1 : montant + badge type */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <span style={{ fontWeight: 800, fontSize: 16, color: amountColor }}>
+            {formatEUR(
+              (e.kind === "expense" || e.kind === "transfer_out")
+                ? -Number(e.amount || 0)
+                : Number(e.amount || 0)
+            )}
+          </span>
+          {kindBadge && (
+            <span style={{
+              fontSize: 11, fontWeight: 700,
+              background: kindBadge.bg, color: kindBadge.color,
+              padding: "2px 7px", borderRadius: 999,
+            }}>
+              {kindBadge.label}
+            </span>
           )}
         </div>
 
@@ -468,30 +385,23 @@ const renderItem = useCallback((e) => {
           );
         })()}
 
+        {/* Ligne 2 : infos secondaires */}
         <div style={styles.muted}>
-          {e.date} • {e.kind === "income"
-            ? "Revenu"
-            : e.kind === "reimbursement"
-            ? "Remboursement"
-            : (e.kind === "transfer_in" || e.kind === "transfer_out")
-            ? "Virement"
-            : "Dépense"
-          }
-          • {e.category}
-          • {e.bank ?? "Physique"}
+          {e.date} • <span style={{ fontWeight: 600, color: catColor !== "#e5e7eb" ? catColor : "#374151" }}>{e.category}</span>
+          {" "}• {e.bank ?? "Physique"}
           • {e.accountType ?? "Compte courant"}
           {e.person ? ` • ${e.person}` : ""}
           {e.note ? ` • ${e.note}` : ""}
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 8 }}>
+      <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
         <button onClick={() => openEdit(e)} style={styles.btnEdit}>Éditer</button>
         <button onClick={() => onDelete(e.id)} style={styles.btnDanger}>Suppr.</button>
       </div>
     </div>
   );
-}, [formatEUR, reimburseByExpenseId, openEdit, onDelete]);
+}, [categoryColors, formatEUR, reimburseByExpenseId, openEdit, onDelete]);
 //fonction remplacant ce qu'il y a dans le filtrered.map
 
 
@@ -729,81 +639,6 @@ const renderItem = useCallback((e) => {
               <div style={styles.muted}>Remboursements : {formatEUR(totals.reimbursements)}</div>
               <div style={styles.total}>Solde : {formatEUR(totals.net)}</div>
             </div>
-
-          
-          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-
-            <button onClick={exportCSV} style={styles.btnSecondary}>Exporter CSV</button>
-
-            <label style={styles.btnSecondary}>
-                Importer CSV
-                <input
-                type="file"
-                accept=".csv,text/csv"
-                style={{ display: "none" }}
-                onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) importCSVFile(f);
-                    e.target.value = "";
-                }}
-                />
-            </label>
-
-            <div style={{ width: "100%", height: 1, background: "rgba(0,0,0,0.06)", margin: "4px 0" }} />
-
-            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-              <label style={{ ...styles.label, minWidth: 180 }}>
-                Banque (import)
-                <select value={cmBank} onChange={(e) => setCmBank(e.target.value)} style={styles.input}>
-                  {(banks || ["Crédit Mutuel"]).map((b) => (
-                    <option key={b} value={b}>
-                      {b}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label style={{ ...styles.label, minWidth: 180 }}>
-                Type de compte (import)
-                <select value={cmAccountType} onChange={(e) => setCmAccountType(e.target.value)} style={styles.input}>
-                  {(accountTypes || ["Compte courant"]).map((t) => (
-                    <option key={t} value={t}>
-                      {t}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label style={{ ...styles.label, minWidth: 180 }}>
-                Catégorie par défaut
-                <select value={cmDefaultCategory} onChange={(e) => setCmDefaultCategory(e.target.value)} style={styles.input}>
-                  {(categories || ["Autres"]).map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label style={styles.btnSecondary}>
-                Importer Crédit Mutuel (Excel)
-                <input
-                  type="file"
-                  accept=".xls,.xlsx,.xlsm,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                  style={{ display: "none" }}
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) importCreditMutuelFile(f);
-                    e.target.value = "";
-                  }}
-                />
-              </label>
-
-              {cmLastInfo ? <div style={{ ...styles.muted, fontSize: 12 }}>{cmLastInfo}</div> : null}
-            </div>
-            </div>
-
-          
           </div>
         </div>
       </div>
@@ -1085,7 +920,7 @@ const styles = {
     fontWeight: 800,
   },
   item: {
-    padding: 14,
+    padding: "12px 14px",
     borderRadius: 16,
     border: "1px solid #e5e7eb",
     background: "white",
@@ -1093,6 +928,7 @@ const styles = {
     alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
+    overflow: "hidden",
   },
   btnEdit: {
     padding: "10px 12px",
