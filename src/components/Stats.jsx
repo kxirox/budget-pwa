@@ -1010,11 +1010,11 @@ const styles = {
   card: {
     padding: 14,
     borderRadius: 16,
-    border: "1px solid #e5e7eb",
-    background: "white"
+    border: "1px solid #e8dfc8",
+    background: "#fdfaf5"
   },
   label: { display: "grid", gap: 6, fontWeight: 800, fontSize: 12, color: "#111827" },
-  input: { padding: "12px 12px", borderRadius: 12, border: "1px solid #d1d5db", fontSize: 15 },
+  input: { padding: "12px 12px", borderRadius: 12, border: "1px solid #d4c9ae", background: "#fdfaf5", fontSize: 15 },
   big: { fontSize: 16 },
   line: { display: "flex", alignItems: "center", justifyContent: "space-between" },
 

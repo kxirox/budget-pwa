@@ -433,8 +433,8 @@ useEffect(() => {
         }}>
           <div style={{
             width: "100%", maxWidth: 360,
-            background: "white", borderRadius: 18,
-            border: "1px solid #e5e7eb", padding: 20,
+            background: "#fdfaf5", borderRadius: 18,
+            border: "1px solid #e8dfc8", padding: 20,
             display: "grid", gap: 14,
           }}>
             <h3 style={{ margin: 0, fontSize: 17 }}>
@@ -499,8 +499,8 @@ const styles = {
     margin: 12,
     padding: 14,
     borderRadius: 16,
-    border: "1px solid #e5e7eb",
-    background: "white",
+    border: "1px solid #e8dfc8",
+    background: "#fdfaf5",
     overflowX: "hidden",
 
   },
@@ -516,7 +516,8 @@ const styles = {
   input: {
     padding: "12px 12px",
     borderRadius: 12,
-    border: "1px solid #d1d5db",
+    border: "1px solid #d4c9ae",
+    background: "#fdfaf5",
     fontSize: 16
   },
   btn: {

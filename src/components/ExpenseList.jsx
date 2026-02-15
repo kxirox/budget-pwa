@@ -892,12 +892,12 @@ const styles = {
   card: {
     padding: 14,
     borderRadius: 16,
-    border: "1px solid #e5e7eb",
-    background: "white",
+    border: "1px solid #e8dfc8",
+    background: "#fdfaf5",
   },
   row2: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 },
   label: { display: "grid", gap: 6, fontWeight: 700, fontSize: 12, color: "#111827" },
-  input: { padding: "12px", borderRadius: 12, border: "1px solid #d1d5db", fontSize: 15 },
+  input: { padding: "12px", borderRadius: 12, border: "1px solid #d4c9ae", background: "#fdfaf5", fontSize: 15 },
   summary: {
     display: "flex",
     alignItems: "center",
@@ -916,14 +916,14 @@ const styles = {
     padding: "10px 12px",
     borderRadius: 12,
     border: "1px solid #111827",
-    background: "white",
+    background: "#fdfaf5",
     fontWeight: 800,
   },
   item: {
     padding: "12px 14px",
     borderRadius: 16,
-    border: "1px solid #e5e7eb",
-    background: "white",
+    border: "1px solid #e8dfc8",
+    background: "#fdfaf5",
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
@@ -957,20 +957,20 @@ const styles = {
     justifyContent: "center",
     padding: 12,
     zIndex: 50,
-    maxHeight: "90vh",       // 👈 ne dépasse jamais l’écran
-    overflowY: "auto",    // 👈 scroll interne si trop grand
+    maxHeight: "90vh",
+    overflowY: "auto",
     overflowX: "hidden",
 
   },
   modal: {
     width: "100%",
     maxWidth: 520,
-    background: "white",
+    background: "#fdfaf5",
     borderRadius: 18,
-    border: "1px solid #e5e7eb",
+    border: "1px solid #e8dfc8",
     padding: 14,
-    maxHeight: "90vh",       // 👈 ne dépasse jamais l’écran
-    overflowY: "auto",      // 👈 scroll interne si trop grand
+    maxHeight: "90vh",
+    overflowY: "auto",
     overflowX: "hidden",
 
   },
@@ -983,8 +983,8 @@ const styles = {
     fontWeight: 900,
   },
   btnX: {
-    border: "1px solid #e5e7eb",
-    background: "white",
+    border: "1px solid #e8dfc8",
+    background: "#fdfaf5",
     borderRadius: 12,
     padding: "6px 10px",
     fontWeight: 900,

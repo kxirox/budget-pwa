@@ -1,13 +1,13 @@
 import { useMemo, useState } from "react";
 
 const styles = {
-  card: { padding: 14, borderRadius: 16, border: "1px solid #e5e7eb", background: "white" },
+  card: { padding: 14, borderRadius: 16, border: "1px solid #e8dfc8", background: "#fdfaf5" },
   h2: { fontSize: 16, fontWeight: 900, marginBottom: 10 },
   row: { display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" },
-  input: { padding: "12px", borderRadius: 12, border: "1px solid #d1d5db", fontSize: 15, flex: "1 1 220px" },
+  input: { padding: "12px", borderRadius: 12, border: "1px solid #d4c9ae", background: "#fdfaf5", fontSize: 15, flex: "1 1 220px" },
   btn: { padding: "10px 12px", borderRadius: 12, border: "1px solid #111827", background: "#111827", color: "white", fontWeight: 900 },
-  btnLight: { padding: "10px 12px", borderRadius: 12, border: "1px solid #d1d5db", background: "white", fontWeight: 900 },
-  item: { display: "flex", gap: 10, alignItems: "center", justifyContent: "space-between", padding: 12, borderRadius: 14, border: "1px solid #e5e7eb", background: "white" },
+  btnLight: { padding: "10px 12px", borderRadius: 12, border: "1px solid #d4c9ae", background: "#fdfaf5", fontWeight: 900 },
+  item: { display: "flex", gap: 10, alignItems: "center", justifyContent: "space-between", padding: 12, borderRadius: 14, border: "1px solid #e8dfc8", background: "#fdfaf5" },
   left: { display: "grid", gap: 6, flex: 1, minWidth: 0 },
   muted: { color: "#6b7280", fontSize: 12 },
 };

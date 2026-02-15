@@ -1172,7 +1172,7 @@ function updateExpense(id, patch) {
 const styles = {
   page: {
     minHeight: "100vh",
-    background: "#f3f4f6",
+    background: "#f5f0e8",
     fontFamily:
       'system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji"'
   },
