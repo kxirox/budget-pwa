@@ -23,7 +23,8 @@ export default function Stats({
     from: "",
     to: "",
     scope: "total",
-    selectedKey: "ALL",
+    selectedBank: "ALL",
+    selectedAccountType: "ALL",
     subcatCategory: (Array.isArray(categories) && categories[0]) ? categories[0] : "Autres"
   };
 
@@ -36,7 +37,8 @@ export default function Stats({
   const [from, setFrom] = useState(savedFilters.from);
   const [to, setTo] = useState(savedFilters.to);
   const [scope, setScope] = useState(savedFilters.scope); // "total" | "bank" | "type"
-  const [selectedKey, setSelectedKey] = useState(savedFilters.selectedKey); // ALL ou une banque/un type
+  const [selectedBank, setSelectedBank] = useState(savedFilters.selectedBank ?? "ALL");
+  const [selectedAccountType, setSelectedAccountType] = useState(savedFilters.selectedAccountType ?? "ALL");
 
   // Sous-categories : camembert par sous-categorie pour une categorie parente
   const [subcatCategory, setSubcatCategory] = useState(savedFilters.subcatCategory);
@@ -49,11 +51,12 @@ export default function Stats({
       from,
       to,
       scope,
-      selectedKey,
+      selectedBank,
+      selectedAccountType,
       subcatCategory
     };
     saveFilters("stats", currentFilters);
-  }, [mode, month, from, to, scope, selectedKey, subcatCategory]);
+  }, [mode, month, from, to, scope, selectedBank, selectedAccountType, subcatCategory]);
 
   // Fonction pour réinitialiser tous les filtres
   const resetAllFilters = () => {
@@ -62,7 +65,8 @@ export default function Stats({
     setFrom("");
     setTo("");
     setScope("total");
-    setSelectedKey("ALL");
+    setSelectedBank("ALL");
+    setSelectedAccountType("ALL");
     setSubcatCategory((Array.isArray(categories) && categories[0]) ? categories[0] : "Autres");
   };
 
@@ -199,15 +203,13 @@ useEffect(() => {
     }
 
 
-          // Filtre "scope" (banque ou type de compte) via selectedKey
-      if (scope === "bank" && selectedKey !== "ALL" && String(e.bank || "") !== selectedKey) return false;
-      if (scope === "type" && selectedKey !== "ALL" && String(e.accountType || "") !== selectedKey) return false;
+    // Filtre banque + type de compte combinés (AND)
+    if (selectedBank !== "ALL" && String(e.bank || "") !== selectedBank) return false;
+    if (selectedAccountType !== "ALL" && String(e.accountType || "") !== selectedAccountType) return false;
 
     return true;
   });
-// mis en commentaire par lou en attendat resolution du pb de non filtrage par banque ou type de categorie  
-//}, [safeExpenses, mode, from, to, month, selectedBank, selectedAccountType, selectedCategory]);
-  }, [safeExpenses, mode, from, to, month, scope, selectedKey]);
+  }, [safeExpenses, mode, from, to, month, selectedBank, selectedAccountType]);
 
 
 
@@ -233,7 +235,6 @@ useEffect(() => {
       if (!d) continue;
 
       const g = getGroupKey(e);
-      if (scope !== "total" && selectedKey !== "ALL" && g !== selectedKey) continue;
 
       const signed = (e.kind === "income" || e.kind === "reimbursement" || e.kind === "transfer_in")
         ? Number(e.amount || 0)
@@ -265,7 +266,7 @@ useEffect(() => {
     }
 
     return { rows: out, keys: groupList };
-  }, [statsFiltered, scope, selectedKey]);
+  }, [statsFiltered, scope]);
   // fin balance timeline par groupe
 
 
@@ -281,19 +282,6 @@ useEffect(() => {
 
 
 
-  // Options pour les filtres bank / type
-  const bankOptions = useMemo(() => {
-    const set = new Set(statsFiltered.map(e => String(e.bank || "Physique").trim() || "Physique"));
-    return ["ALL", ...Array.from(set).sort((a, b) => a.localeCompare(b))];
-  }, [statsFiltered]);
-
-  const typeOptions = useMemo(() => {
-    const set = new Set(statsFiltered.map(e => String(e.accountType || "Compte courant").trim() || "Compte courant"));
-    return ["ALL", ...Array.from(set).sort((a, b) => a.localeCompare(b))];
-  }, [statsFiltered]);
-
-  // Quand tu changes de scope, on reset la sélection
-  useEffect(() => setSelectedKey("ALL"), [scope]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   // fin options filtre
 
@@ -497,7 +485,7 @@ const subcatData = useMemo(() => {
             style={{
               display: "grid",
               gap: 10,
-              gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr 1fr"
+              gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr 1fr"
             }}
           >
             <label style={styles.label}>
@@ -508,38 +496,34 @@ const subcatData = useMemo(() => {
               </select>
             </label>
 
-
             <label style={styles.label}>
               Courbe
               <select value={scope} onChange={(e) => setScope(e.target.value)} style={styles.input}>
                 <option value="total">Solde total</option>
-                <option value="bank">Solde par banque</option>
-                <option value="type">Solde par type de compte</option>
+                <option value="bank">Par banque</option>
+                <option value="type">Par type de compte</option>
               </select>
             </label>
 
+            <label style={styles.label}>
+              Banque
+              <select value={selectedBank} onChange={(e) => setSelectedBank(e.target.value)} style={styles.input}>
+                <option value="ALL">Toutes</option>
+                {safeBanks.map(b => (
+                  <option key={b} value={b}>{b}</option>
+                ))}
+              </select>
+            </label>
 
-            {scope === "bank" && (
-              <label style={styles.label}>
-                Banque
-                <select value={selectedKey} onChange={(e) => setSelectedKey(e.target.value)} style={styles.input}>
-                  {bankOptions.map(b => (
-                    <option key={b} value={b}>{b === "ALL" ? "Toutes" : b}</option>
-                  ))}
-                </select>
-              </label>
-            )}
-
-            {scope === "type" && (
-              <label style={styles.label}>
-                Type de compte
-                <select value={selectedKey} onChange={(e) => setSelectedKey(e.target.value)} style={styles.input}>
-                  {typeOptions.map(t => (
-                    <option key={t} value={t}>{t === "ALL" ? "Tous" : t}</option>
-                  ))}
-                </select>
-              </label>
-            )}
+            <label style={styles.label}>
+              Type de compte
+              <select value={selectedAccountType} onChange={(e) => setSelectedAccountType(e.target.value)} style={styles.input}>
+                <option value="ALL">Tous</option>
+                {safeAccountTypes.map(t => (
+                  <option key={t} value={t}>{t}</option>
+                ))}
+              </select>
+            </label>
 
 
 
