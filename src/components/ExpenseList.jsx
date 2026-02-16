@@ -18,7 +18,9 @@ export default function ExpenseList({ expenses, categories, subcategoriesMap = {
     mode: "month",
     from: "",
     to: "",
-    selectedTypes: ["expense", "income", "reimbursement", "transfer_in", "transfer_out"]
+    selectedTypes: ["expense", "income", "reimbursement", "transfer_in", "transfer_out"],
+    amountMin: "",
+    amountMax: "",
   };
 
   // Charger les filtres sauvegardés (même pattern que Stats.jsx)
@@ -34,6 +36,8 @@ export default function ExpenseList({ expenses, categories, subcategoriesMap = {
   const [from, setFrom] = useState(savedFilters.from);
   const [to, setTo] = useState(savedFilters.to);
   const [selectedTypes, setSelectedTypes] = useState(savedFilters.selectedTypes);
+  const [amountMin, setAmountMin] = useState(savedFilters.amountMin ?? "");
+  const [amountMax, setAmountMax] = useState(savedFilters.amountMax ?? "");
 
   // Sauvegarder les filtres à chaque changement
   useEffect(() => {
@@ -46,10 +50,12 @@ export default function ExpenseList({ expenses, categories, subcategoriesMap = {
       mode,
       from,
       to,
-      selectedTypes
+      selectedTypes,
+      amountMin,
+      amountMax,
     };
     saveFilters("history", currentFilters);
-  }, [month, cat, bankFilter, accountTypeFilter, q, mode, from, to, selectedTypes]);
+  }, [month, cat, bankFilter, accountTypeFilter, q, mode, from, to, selectedTypes, amountMin, amountMax]);
 
   // Helper pour ajuster la taille de l'application a un mobile
   const isMobile = typeof window !== "undefined" && window.innerWidth < 700;
@@ -105,9 +111,15 @@ export default function ExpenseList({ expenses, categories, subcategoriesMap = {
           String(e.accountType ?? "").toLowerCase().includes(s)
         );
       })
+      .filter(e => {
+        const abs = Math.abs(Number(e.amount || 0));
+        if (amountMin !== "" && !isNaN(+amountMin) && abs < +amountMin) return false;
+        if (amountMax !== "" && !isNaN(+amountMax) && abs > +amountMax) return false;
+        return true;
+      })
       .slice()
       .sort((a, b) => b.date.localeCompare(a.date));
-  }, [expenses, month, mode, from, to, cat, bankFilter, accountTypeFilter, selectedTypes, q]);
+  }, [expenses, month, mode, from, to, cat, bankFilter, accountTypeFilter, selectedTypes, q, amountMin, amountMax]);
 
 const reimburseByExpenseId = useMemo(() => {
   const map = new Map(); // expenseId -> sum
@@ -319,6 +331,8 @@ function makeId() {
     setFrom("");
     setTo("");
     setSelectedTypes(["expense", "income", "reimbursement", "transfer_in", "transfer_out"]);
+    setAmountMin("");
+    setAmountMax("");
   };
   
 
@@ -491,6 +505,59 @@ const renderItem = useCallback((e) => {
             Recherche (note / catégorie / banque / type)
             <input value={q} onChange={(e) => setQ(e.target.value)} style={styles.input} placeholder="ex: Uber, Revolut..." />
           </label>
+
+          {/* Filtre montant min / max */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <label style={styles.label}>
+              Montant min (€)
+              <div style={{ position: "relative" }}>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="0.01"
+                  value={amountMin}
+                  onChange={(e) => setAmountMin(e.target.value)}
+                  style={{ ...styles.input, width: "100%", paddingRight: amountMin ? 28 : 12 }}
+                  placeholder="0"
+                />
+                {amountMin !== "" && (
+                  <button
+                    onClick={() => setAmountMin("")}
+                    style={styles.clearBtn}
+                    title="Effacer"
+                  >✕</button>
+                )}
+              </div>
+            </label>
+            <label style={styles.label}>
+              Montant max (€)
+              <div style={{ position: "relative" }}>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="0.01"
+                  value={amountMax}
+                  onChange={(e) => setAmountMax(e.target.value)}
+                  style={{ ...styles.input, width: "100%", paddingRight: amountMax ? 28 : 12 }}
+                  placeholder="∞"
+                />
+                {amountMax !== "" && (
+                  <button
+                    onClick={() => setAmountMax("")}
+                    style={styles.clearBtn}
+                    title="Effacer"
+                  >✕</button>
+                )}
+              </div>
+            </label>
+          </div>
+          {(amountMin !== "" || amountMax !== "") && (
+            <div style={{ fontSize: 12, color: "#6b7280", marginTop: -4 }}>
+              💰 Filtre actif : {amountMin !== "" ? `≥ ${amountMin}€` : ""}{amountMin !== "" && amountMax !== "" ? " et " : ""}{amountMax !== "" ? `≤ ${amountMax}€` : ""}
+            </div>
+          )}
 
           {/* Bouton de réinitialisation des filtres */}
           <div style={{ display: "flex", justifyContent: "flex-end", marginTop: -4 }}>
@@ -988,5 +1055,19 @@ const styles = {
     borderRadius: 12,
     padding: "6px 10px",
     fontWeight: 900,
+  },
+  clearBtn: {
+    position: "absolute",
+    right: 6,
+    top: "50%",
+    transform: "translateY(-50%)",
+    background: "none",
+    border: "none",
+    cursor: "pointer",
+    color: "#9ca3af",
+    fontSize: 12,
+    fontWeight: 700,
+    padding: "2px 4px",
+    lineHeight: 1,
   },
 };
