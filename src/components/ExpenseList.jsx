@@ -173,6 +173,240 @@ const totals = useMemo(() => {
   };
 }, [filtered, reimburseByExpenseId]);
 
+  // ---- SELECTION MODE (appui long) ----
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [quickSelectOpen, setQuickSelectOpen] = useState(false);
+  const longPressTimer = useRef(null);
+  const longPressMoved = useRef(false);
+
+  const exitSelectionMode = () => {
+    setSelectionMode(false);
+    setSelectedIds(new Set());
+    setQuickSelectOpen(false);
+  };
+
+  const toggleSelect = (id) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      // Quitte le mode si on décoche la dernière
+      if (next.size === 0) {
+        setSelectionMode(false);
+        setQuickSelectOpen(false);
+      }
+      return next;
+    });
+  };
+
+  const handlePointerDown = (e, id) => {
+    longPressMoved.current = false;
+    longPressTimer.current = setTimeout(() => {
+      if (!longPressMoved.current) {
+        // Vibration retour haptique sur mobile
+        if (navigator.vibrate) navigator.vibrate(40);
+        setSelectionMode(true);
+        setSelectedIds(new Set([id]));
+      }
+    }, 500);
+  };
+
+  const handlePointerMove = () => {
+    longPressMoved.current = true;
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
+
+  const handlePointerUp = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
+
+  // Sélections rapides
+  const selectAll = () => {
+    setSelectedIds(new Set(filtered.map(e => e.id)));
+    setQuickSelectOpen(false);
+  };
+
+  const selectCurrentMonth = () => {
+    const key = month !== "ALL" ? month : currentMonthKey(new Date().toISOString().slice(0, 10));
+    setSelectedIds(new Set(filtered.filter(e => currentMonthKey(e.date) === key).map(e => e.id)));
+    setQuickSelectOpen(false);
+  };
+
+  const selectCurrentFilter = () => {
+    setSelectedIds(new Set(filtered.map(e => e.id)));
+    setQuickSelectOpen(false);
+  };
+
+  const deselectAll = () => {
+    setSelectedIds(new Set());
+    setSelectionMode(false);
+    setQuickSelectOpen(false);
+  };
+
+  // Suppression multiple
+  const handleBulkDelete = () => {
+    const n = selectedIds.size;
+    if (!window.confirm(`Tu vas supprimer définitivement ${n} opération${n > 1 ? "s" : ""}. Cette action est irréversible.`)) return;
+    selectedIds.forEach(id => onDelete(id));
+    exitSelectionMode();
+  };
+
+  // ---- UNDO SNACKBAR ----
+  const [snackbar, setSnackbar] = useState(null); // { message, snapshot: [{id, ...fields}] }
+  const snackbarTimer = useRef(null);
+  const [snackbarCountdown, setSnackbarCountdown] = useState(5);
+  const snackbarCountdownRef = useRef(null);
+
+  const showSnackbar = (message, snapshot) => {
+    // Annuler un éventuel timer précédent
+    if (snackbarTimer.current) clearTimeout(snackbarTimer.current);
+    if (snackbarCountdownRef.current) clearInterval(snackbarCountdownRef.current);
+
+    setSnackbar({ message, snapshot });
+    setSnackbarCountdown(5);
+
+    // Countdown 1s
+    snackbarCountdownRef.current = setInterval(() => {
+      setSnackbarCountdown(prev => {
+        if (prev <= 1) {
+          clearInterval(snackbarCountdownRef.current);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    // Disparaît après 5s
+    snackbarTimer.current = setTimeout(() => {
+      setSnackbar(null);
+      setSnackbarCountdown(5);
+    }, 5000);
+  };
+
+  const handleUndo = () => {
+    if (!snackbar?.snapshot) return;
+    // Restaurer chaque opération à son état d'avant
+    for (const old of snackbar.snapshot) {
+      const { id, ...fields } = old;
+      onUpdate(id, fields);
+    }
+    clearTimeout(snackbarTimer.current);
+    clearInterval(snackbarCountdownRef.current);
+    setSnackbar(null);
+    setSnackbarCountdown(5);
+  };
+
+  // ---- BULK EDIT ----
+  const [bulkEditOpen, setBulkEditOpen] = useState(false);
+
+  // Chaque champ a un état "touched" (modifié par l'utilisateur) + "value"
+  const [bulkCategory, setBulkCategory] = useState("");
+  const [bulkCategoryTouched, setBulkCategoryTouched] = useState(false);
+  const [bulkSubcategory, setBulkSubcategory] = useState("");
+  const [bulkSubcategoryTouched, setBulkSubcategoryTouched] = useState(false);
+  const [bulkBank, setBulkBank] = useState("");
+  const [bulkBankTouched, setBulkBankTouched] = useState(false);
+  const [bulkAccountType, setBulkAccountType] = useState("");
+  const [bulkAccountTypeTouched, setBulkAccountTypeTouched] = useState(false);
+  const [bulkDate, setBulkDate] = useState("");
+  const [bulkDateTouched, setBulkDateTouched] = useState(false);
+  const [bulkNote, setBulkNote] = useState("");
+  const [bulkNoteTouched, setBulkNoteTouched] = useState(false);
+  const [bulkPerson, setBulkPerson] = useState("");
+  const [bulkPersonTouched, setBulkPersonTouched] = useState(false);
+
+  // Calcule la valeur commune d'un champ parmi les lignes sélectionnées
+  const commonValue = (field) => {
+    const items = expenses.filter(e => selectedIds.has(e.id));
+    if (items.length === 0) return "";
+    const vals = new Set(items.map(e => String(e[field] ?? "")));
+    return vals.size === 1 ? [...vals][0] : null; // null = valeurs différentes
+  };
+
+  const openBulkEdit = () => {
+    // Pré-remplir avec les valeurs communes
+    const cv = (f) => commonValue(f) ?? "";
+    setBulkCategory(cv("category"));
+    setBulkCategoryTouched(false);
+    setBulkSubcategory(cv("subcategory"));
+    setBulkSubcategoryTouched(false);
+    setBulkBank(cv("bank"));
+    setBulkBankTouched(false);
+    setBulkAccountType(cv("accountType"));
+    setBulkAccountTypeTouched(false);
+    setBulkDate(cv("date"));
+    setBulkDateTouched(false);
+    setBulkNote(cv("note"));
+    setBulkNoteTouched(false);
+    setBulkPerson(cv("person"));
+    setBulkPersonTouched(false);
+    setBulkEditOpen(true);
+  };
+
+  const closeBulkEdit = () => setBulkEditOpen(false);
+
+  const applyBulkEdit = () => {
+    const n = selectedIds.size;
+    // Compter les champs réellement modifiés
+    const changes = [];
+    if (bulkCategoryTouched && bulkCategory) changes.push("catégorie");
+    if (bulkSubcategoryTouched) changes.push("sous-catégorie");
+    if (bulkBankTouched && bulkBank) changes.push("banque");
+    if (bulkAccountTypeTouched && bulkAccountType) changes.push("type de compte");
+    if (bulkDateTouched && bulkDate) changes.push("date");
+    if (bulkNoteTouched) changes.push("note");
+    if (bulkPersonTouched) changes.push("personne");
+
+    if (changes.length === 0) {
+      alert("Aucun champ modifié. Modifie au moins un champ pour appliquer.");
+      return;
+    }
+
+    if (n >= 3) {
+      const ok = window.confirm(
+        `Tu vas modifier ${n} opération${n > 1 ? "s" : ""} (${changes.join(", ")}).\n\nContinuer ?`
+      );
+      if (!ok) return;
+    }
+
+    // Sauvegarder le snapshot AVANT modification (pour undo)
+    const items = expenses.filter(e => selectedIds.has(e.id));
+    const snapshot = items.map(e => ({ ...e }));
+
+    // Appliquer les changements
+    for (const e of items) {
+      const patch = {};
+
+      if (bulkCategoryTouched && bulkCategory) {
+        patch.category = bulkCategory;
+        // Si catégorie change et sous-catégorie n'est PAS touchée manuellement → reset sous-cat
+        if (!bulkSubcategoryTouched) patch.subcategory = "";
+      }
+      if (bulkSubcategoryTouched) patch.subcategory = bulkSubcategory;
+      if (bulkBankTouched && bulkBank) patch.bank = bulkBank;
+      if (bulkAccountTypeTouched && bulkAccountType) patch.accountType = bulkAccountType;
+      if (bulkDateTouched && bulkDate) patch.date = bulkDate;
+      if (bulkNoteTouched) patch.note = bulkNote.trim();
+      if (bulkPersonTouched) patch.person = bulkPerson.trim();
+
+      if (Object.keys(patch).length > 0) {
+        onUpdate(e.id, patch);
+      }
+    }
+
+    // Snackbar undo
+    showSnackbar(`✅ ${n} opération${n > 1 ? "s" : ""} modifiée${n > 1 ? "s" : ""}`, snapshot);
+
+    closeBulkEdit();
+    exitSelectionMode();
+  };
+
   // ---- EDIT MODE ----
   const [editingId, setEditingId] = useState(null);
   const editing = useMemo(() => filtered.find(e => e.id === editingId) ?? null, [filtered, editingId]);
@@ -344,6 +578,7 @@ function makeId() {
 const renderItem = useCallback((e) => {
   // ── Couleur de la bande gauche (catégorie) ──
   const catColor = categoryColors[e.category] || "#e5e7eb";
+  const isSelected = selectedIds.has(e.id);
 
   // ── Couleur et badge selon le type d'opération ──
   let amountColor, kindBadge;
@@ -360,13 +595,47 @@ const renderItem = useCallback((e) => {
     amountColor = "#6b7280";
     kindBadge = { label: "⇄ Virement", bg: "#f3f4f6", color: "#6b7280" };
   } else {
-    // expense
     amountColor = "#dc2626";
     kindBadge = null;
   }
 
   return (
-    <div style={{ ...styles.item, borderLeft: `4px solid ${catColor}`, paddingLeft: 12 }}>
+    <div
+      onPointerDown={(ev) => handlePointerDown(ev, e.id)}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp}
+      onClick={() => {
+        if (selectionMode) {
+          toggleSelect(e.id);
+        }
+      }}
+      style={{
+        ...styles.item,
+        borderLeft: `4px solid ${catColor}`,
+        paddingLeft: 12,
+        background: isSelected ? "#f0e9d8" : "#fdfaf5",
+        outline: isSelected ? "2px solid #c9a84c" : "none",
+        userSelect: "none",
+        cursor: selectionMode ? "pointer" : "default",
+        transition: "background 0.15s, outline 0.15s",
+      }}
+    >
+      {/* Case à cocher en mode sélection */}
+      {selectionMode && (
+        <div style={{ flexShrink: 0, display: "flex", alignItems: "center" }}>
+          <div style={{
+            width: 22, height: 22, borderRadius: "50%",
+            border: `2px solid ${isSelected ? "#c9a84c" : "#d4c9ae"}`,
+            background: isSelected ? "#c9a84c" : "transparent",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            transition: "all 0.15s",
+          }}>
+            {isSelected && <span style={{ color: "white", fontSize: 13, fontWeight: 900, lineHeight: 1 }}>✓</span>}
+          </div>
+        </div>
+      )}
+
       <div style={{ display: "grid", gap: 4, minWidth: 0, flex: 1 }}>
         {/* Ligne 1 : montant + badge type */}
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -409,13 +678,16 @@ const renderItem = useCallback((e) => {
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
-        <button onClick={() => openEdit(e)} style={styles.btnEdit}>Éditer</button>
-        <button onClick={() => onDelete(e.id)} style={styles.btnDanger}>Suppr.</button>
-      </div>
+      {/* Boutons éditer/supprimer — masqués en mode sélection */}
+      {!selectionMode && (
+        <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+          <button onClick={() => openEdit(e)} style={styles.btnEdit}>Éditer</button>
+          <button onClick={() => onDelete(e.id)} style={styles.btnDanger}>Suppr.</button>
+        </div>
+      )}
     </div>
   );
-}, [categoryColors, formatEUR, reimburseByExpenseId, openEdit, onDelete]);
+}, [categoryColors, formatEUR, reimburseByExpenseId, openEdit, onDelete, selectionMode, selectedIds, handlePointerDown, handlePointerMove, handlePointerUp, toggleSelect]);
 //fonction remplacant ce qu'il y a dans le filtrered.map
 
 
@@ -710,6 +982,52 @@ const renderItem = useCallback((e) => {
         </div>
       </div>
 
+      {/* ── Barre d'action mode sélection ── */}
+      {selectionMode && (
+        <div style={styles.selectionBar}>
+          {/* Bouton Annuler */}
+          <button onClick={exitSelectionMode} style={styles.selBarBtn}>
+            ✕ Annuler
+          </button>
+
+          {/* Compteur + dropdown sélection rapide */}
+          <div style={{ position: "relative" }}>
+            <button
+              onClick={() => setQuickSelectOpen(o => !o)}
+              style={{ ...styles.selBarBtn, background: "#3d3728", color: "#fdfaf5", fontWeight: 800 }}
+            >
+              {selectedIds.size} sélectionnée{selectedIds.size > 1 ? "s" : ""} ▾
+            </button>
+            {quickSelectOpen && (
+              <div style={styles.quickSelectMenu}>
+                <button style={styles.quickSelectItem} onClick={selectAll}>✅ Tout sélectionner</button>
+                <button style={styles.quickSelectItem} onClick={selectCurrentFilter}>🔍 Sélection filtre actif</button>
+                <button style={styles.quickSelectItem} onClick={selectCurrentMonth}>📅 Sélectionner ce mois</button>
+                <button style={styles.quickSelectItem} onClick={deselectAll}>☐ Tout désélectionner</button>
+              </div>
+            )}
+          </div>
+
+          {/* Actions */}
+          <div style={{ display: "flex", gap: 6, marginLeft: "auto" }}>
+            <button
+              onClick={openBulkEdit}
+              style={{ ...styles.selBarBtn, background: "#111827", color: "white", border: "none" }}
+              title="Éditer la sélection"
+            >
+              ✏️ Éditer
+            </button>
+            <button
+              onClick={handleBulkDelete}
+              style={{ ...styles.selBarBtn, background: "#ef4444", color: "white", border: "none" }}
+              title="Supprimer la sélection"
+            >
+              🗑️ Supprimer
+            </button>
+          </div>
+        </div>
+      )}
+
       {filtered.length === 0 ? (
         <div style={styles.empty}>Aucune dépense pour ce filtre.</div>
       ) : (
@@ -928,6 +1246,207 @@ const renderItem = useCallback((e) => {
         </div>
       )}
 
+      {/* ── Modal édition multiple ── */}
+      {bulkEditOpen && (
+        <div style={styles.modalBackdrop} onClick={closeBulkEdit}>
+          <div style={styles.modal} onClick={(ev) => ev.stopPropagation()}>
+
+            {/* En-tête */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 16 }}>✏️ Modifier {selectedIds.size} opération{selectedIds.size > 1 ? "s" : ""}</h3>
+                <div style={{ fontSize: 12, color: "#6b7280", marginTop: 3 }}>
+                  Seuls les champs modifiés seront appliqués.
+                </div>
+              </div>
+              <button onClick={closeBulkEdit} style={styles.btnX}>✕</button>
+            </div>
+
+            {/* Avertissement montant désactivé */}
+            <div style={{ fontSize: 12, color: "#b45309", background: "#fef3c7", border: "1px solid #fcd34d", borderRadius: 10, padding: "8px 12px", marginBottom: 12 }}>
+              ⚠️ Le montant et le type d'opération ne sont pas modifiables en édition multiple.
+            </div>
+
+            <div style={{ display: "grid", gap: 12 }}>
+
+              {/* Catégorie */}
+              {(() => {
+                const cv = commonValue("category");
+                return (
+                  <div style={styles.bulkField}>
+                    <div style={styles.bulkFieldHeader}>
+                      <span style={styles.label}>Catégorie</span>
+                      {bulkCategoryTouched && (
+                        <span style={styles.bulkModifiedBadge}>● modifié</span>
+                      )}
+                    </div>
+                    <select
+                      value={bulkCategory}
+                      onChange={(e) => { setBulkCategory(e.target.value); setBulkCategoryTouched(true); setBulkSubcategoryTouched(false); setBulkSubcategory(""); }}
+                      style={{ ...styles.input, borderColor: bulkCategoryTouched ? "#c9a84c" : "#d4c9ae" }}
+                    >
+                      {!bulkCategoryTouched && cv === null && <option value="">— Valeurs différentes —</option>}
+                      {!bulkCategoryTouched && cv !== null && <option value={cv}>{cv} (valeur commune)</option>}
+                      {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                );
+              })()}
+
+              {/* Sous-catégorie */}
+              {(() => {
+                const cv = commonValue("subcategory");
+                const catForSub = bulkCategoryTouched ? bulkCategory : (commonValue("category") ?? "");
+                const subOptions = (subcategoriesMap && subcategoriesMap[catForSub]) || [];
+                return (
+                  <div style={styles.bulkField}>
+                    <div style={styles.bulkFieldHeader}>
+                      <span style={styles.label}>Sous-catégorie</span>
+                      {bulkSubcategoryTouched && (
+                        <span style={styles.bulkModifiedBadge}>● modifié</span>
+                      )}
+                    </div>
+                    <select
+                      value={bulkSubcategory}
+                      onChange={(e) => { setBulkSubcategory(e.target.value); setBulkSubcategoryTouched(true); }}
+                      style={{ ...styles.input, borderColor: bulkSubcategoryTouched ? "#c9a84c" : "#d4c9ae" }}
+                    >
+                      {!bulkSubcategoryTouched && cv === null && <option value="">— Valeurs différentes —</option>}
+                      <option value="">— Aucune —</option>
+                      {subOptions.map(sc => <option key={sc} value={sc}>{sc}</option>)}
+                    </select>
+                  </div>
+                );
+              })()}
+
+              {/* Banque */}
+              {(() => {
+                const cv = commonValue("bank");
+                return (
+                  <div style={styles.bulkField}>
+                    <div style={styles.bulkFieldHeader}>
+                      <span style={styles.label}>Banque</span>
+                      {bulkBankTouched && <span style={styles.bulkModifiedBadge}>● modifié</span>}
+                    </div>
+                    <select
+                      value={bulkBank}
+                      onChange={(e) => { setBulkBank(e.target.value); setBulkBankTouched(true); }}
+                      style={{ ...styles.input, borderColor: bulkBankTouched ? "#c9a84c" : "#d4c9ae" }}
+                    >
+                      {!bulkBankTouched && cv === null && <option value="">— Valeurs différentes —</option>}
+                      {(banks || ["Physique"]).map(b => <option key={b} value={b}>{b}</option>)}
+                    </select>
+                  </div>
+                );
+              })()}
+
+              {/* Type de compte */}
+              {(() => {
+                const cv = commonValue("accountType");
+                return (
+                  <div style={styles.bulkField}>
+                    <div style={styles.bulkFieldHeader}>
+                      <span style={styles.label}>Type de compte</span>
+                      {bulkAccountTypeTouched && <span style={styles.bulkModifiedBadge}>● modifié</span>}
+                    </div>
+                    <select
+                      value={bulkAccountType}
+                      onChange={(e) => { setBulkAccountType(e.target.value); setBulkAccountTypeTouched(true); }}
+                      style={{ ...styles.input, borderColor: bulkAccountTypeTouched ? "#c9a84c" : "#d4c9ae" }}
+                    >
+                      {!bulkAccountTypeTouched && cv === null && <option value="">— Valeurs différentes —</option>}
+                      {(accountTypes || ["Compte courant"]).map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  </div>
+                );
+              })()}
+
+              {/* Date */}
+              {(() => {
+                const cv = commonValue("date");
+                return (
+                  <div style={styles.bulkField}>
+                    <div style={styles.bulkFieldHeader}>
+                      <span style={styles.label}>Date</span>
+                      {bulkDateTouched && <span style={styles.bulkModifiedBadge}>● modifié</span>}
+                      {!bulkDateTouched && cv === null && <span style={{ fontSize: 11, color: "#6b7280" }}>valeurs différentes</span>}
+                    </div>
+                    <input
+                      type="date"
+                      value={bulkDate}
+                      onChange={(e) => { setBulkDate(e.target.value); setBulkDateTouched(true); }}
+                      style={{ ...styles.input, borderColor: bulkDateTouched ? "#c9a84c" : "#d4c9ae" }}
+                    />
+                  </div>
+                );
+              })()}
+
+              {/* Note */}
+              {(() => {
+                const cv = commonValue("note");
+                return (
+                  <div style={styles.bulkField}>
+                    <div style={styles.bulkFieldHeader}>
+                      <span style={styles.label}>Note</span>
+                      {bulkNoteTouched && <span style={styles.bulkModifiedBadge}>● modifié</span>}
+                    </div>
+                    <input
+                      type="text"
+                      value={bulkNote}
+                      onChange={(e) => { setBulkNote(e.target.value); setBulkNoteTouched(true); }}
+                      placeholder={cv === null ? "— Valeurs différentes —" : (cv || "Ajouter une note…")}
+                      style={{ ...styles.input, borderColor: bulkNoteTouched ? "#c9a84c" : "#d4c9ae" }}
+                    />
+                  </div>
+                );
+              })()}
+
+              {/* Personne */}
+              {(() => {
+                const cv = commonValue("person");
+                return (
+                  <div style={styles.bulkField}>
+                    <div style={styles.bulkFieldHeader}>
+                      <span style={styles.label}>Personne</span>
+                      {bulkPersonTouched && <span style={styles.bulkModifiedBadge}>● modifié</span>}
+                    </div>
+                    <input
+                      list="bulk-people-list"
+                      value={bulkPerson}
+                      onChange={(e) => { setBulkPerson(e.target.value); setBulkPersonTouched(true); }}
+                      placeholder={cv === null ? "— Valeurs différentes —" : (cv || "ex: Julie")}
+                      style={{ ...styles.input, borderColor: bulkPersonTouched ? "#c9a84c" : "#d4c9ae" }}
+                    />
+                    <datalist id="bulk-people-list">
+                      {(Array.isArray(people) ? people : []).map(p => <option key={p} value={p} />)}
+                    </datalist>
+                  </div>
+                );
+              })()}
+
+            </div>
+
+            {/* Actions */}
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 18 }}>
+              <button onClick={closeBulkEdit} style={styles.btnSecondary}>Annuler</button>
+              <button onClick={applyBulkEdit} style={styles.btnPrimary}>
+                ✅ Appliquer à {selectedIds.size} opération{selectedIds.size > 1 ? "s" : ""}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Snackbar undo ── */}
+      {snackbar && (
+        <div style={styles.snackbar}>
+          <span style={{ fontWeight: 600, fontSize: 13 }}>{snackbar.message}</span>
+          <button onClick={handleUndo} style={styles.snackbarBtn}>
+            ↩ Annuler ({snackbarCountdown}s)
+          </button>
+        </div>
+      )}
+
         <div style={{ marginTop: 16 }}>
           <button
             type = "button"
@@ -1069,5 +1588,108 @@ const styles = {
     fontWeight: 700,
     padding: "2px 4px",
     lineHeight: 1,
+  },
+
+  // ── Barre de sélection multiple ──
+  selectionBar: {
+    position: "sticky",
+    top: 0,
+    zIndex: 20,
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    flexWrap: "wrap",
+    padding: "10px 12px",
+    background: "#fdf6e3",
+    border: "1px solid #c9a84c",
+    borderRadius: 14,
+    boxShadow: "0 2px 10px rgba(0,0,0,0.12)",
+  },
+  selBarBtn: {
+    padding: "8px 14px",
+    borderRadius: 10,
+    border: "1px solid #c9a84c",
+    background: "#fdfaf5",
+    color: "#3d3728",
+    fontWeight: 700,
+    fontSize: 13,
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+  },
+  quickSelectMenu: {
+    position: "absolute",
+    top: "calc(100% + 6px)",
+    left: 0,
+    zIndex: 30,
+    background: "#fdfaf5",
+    border: "1px solid #e8dfc8",
+    borderRadius: 12,
+    boxShadow: "0 4px 16px rgba(0,0,0,0.14)",
+    overflow: "hidden",
+    minWidth: 210,
+  },
+  quickSelectItem: {
+    display: "block",
+    width: "100%",
+    padding: "11px 16px",
+    background: "none",
+    border: "none",
+    borderBottom: "1px solid #f0e9d8",
+    textAlign: "left",
+    fontSize: 13,
+    fontWeight: 600,
+    cursor: "pointer",
+    color: "#3d3728",
+  },
+
+  // ── Bulk edit modal ──
+  bulkField: {
+    display: "grid",
+    gap: 5,
+  },
+  bulkFieldHeader: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  bulkModifiedBadge: {
+    fontSize: 11,
+    fontWeight: 700,
+    color: "#c9a84c",
+    background: "#fef3c7",
+    padding: "2px 7px",
+    borderRadius: 999,
+    whiteSpace: "nowrap",
+  },
+
+  // ── Snackbar undo ──
+  snackbar: {
+    position: "fixed",
+    bottom: 24,
+    left: "50%",
+    transform: "translateX(-50%)",
+    zIndex: 100,
+    display: "flex",
+    alignItems: "center",
+    gap: 14,
+    background: "#1f2937",
+    color: "#f9fafb",
+    padding: "12px 18px",
+    borderRadius: 14,
+    boxShadow: "0 4px 20px rgba(0,0,0,0.25)",
+    maxWidth: "90vw",
+    whiteSpace: "nowrap",
+  },
+  snackbarBtn: {
+    background: "#c9a84c",
+    color: "#1f2937",
+    border: "none",
+    borderRadius: 8,
+    padding: "6px 12px",
+    fontWeight: 800,
+    fontSize: 12,
+    cursor: "pointer",
+    whiteSpace: "nowrap",
   },
 };
