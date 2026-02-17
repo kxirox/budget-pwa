@@ -1,8 +1,93 @@
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect, useRef } from "react";
 import { PieChart, Pie, Tooltip, ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Cell, BarChart, Bar, Legend } from "recharts";
 import { currentMonthKey, formatEUR, monthLabelFR } from "../utils";
 import { saveFilters, loadFilters } from "../filterStorage";
 
+// ── Tooltip custom pour l'histogramme 12 mois ──
+// Sur mobile : panneau fixe centré en bas d'écran, jamais coupé
+// Sur desktop : tooltip inline standard
+function HistoTooltip({ active, payload, label, categoryColors, monthlyByCatRows }) {
+  const isMobile = typeof window !== "undefined" && window.innerWidth < 700;
+  if (!active || !payload || payload.length === 0) return null;
+
+  const row = (monthlyByCatRows || []).find(r => r.label === label);
+  const monthLabel = row ? monthLabelFR(row.month) : label;
+
+  // Filtre les catégories avec un montant > 0, triées par montant desc
+  const items = payload
+    .filter(p => p.value > 0)
+    .sort((a, b) => b.value - a.value);
+
+  const total = items.reduce((s, p) => s + p.value, 0);
+
+  const content = (
+    <>
+      <div style={{ fontWeight: 800, fontSize: 13, marginBottom: 8, color: "#111827", borderBottom: "1px solid #e8dfc8", paddingBottom: 6 }}>
+        {monthLabel}
+      </div>
+      {items.map(p => (
+        <div key={p.dataKey} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "3px 0" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+            <span style={{ width: 10, height: 10, borderRadius: "50%", background: categoryColors?.[p.dataKey] || p.fill, flexShrink: 0, display: "inline-block" }} />
+            <span style={{ fontSize: 12, color: "#374151", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.dataKey}</span>
+          </div>
+          <span style={{ fontSize: 12, fontWeight: 700, color: "#111827", whiteSpace: "nowrap" }}>
+            {Number(p.value).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
+          </span>
+        </div>
+      ))}
+      {items.length > 1 && (
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, marginTop: 8, paddingTop: 6, borderTop: "1px solid #e8dfc8" }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: "#374151" }}>Total</span>
+          <span style={{ fontSize: 12, fontWeight: 900, color: "#111827" }}>
+            {total.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
+          </span>
+        </div>
+      )}
+    </>
+  );
+
+  if (isMobile) {
+    return (
+      <div style={{
+        position: "fixed",
+        bottom: 80,
+        left: "50%",
+        transform: "translateX(-50%)",
+        zIndex: 200,
+        background: "#fdfaf5",
+        border: "1px solid #e8dfc8",
+        borderRadius: 16,
+        padding: "14px 16px",
+        boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
+        minWidth: 220,
+        maxWidth: "90vw",
+        maxHeight: "55vh",
+        overflowY: "auto",
+        pointerEvents: "none",
+      }}>
+        {content}
+      </div>
+    );
+  }
+
+  // Desktop : tooltip inline classique
+  return (
+    <div style={{
+      background: "#fdfaf5",
+      border: "1px solid #e8dfc8",
+      borderRadius: 12,
+      padding: "12px 14px",
+      boxShadow: "0 4px 16px rgba(0,0,0,0.10)",
+      minWidth: 180,
+      maxWidth: 280,
+      maxHeight: 400,
+      overflowY: "auto",
+    }}>
+      {content}
+    </div>
+  );
+}
 
 export default function Stats({
   expenses = [],
@@ -778,12 +863,12 @@ const subcatData = useMemo(() => {
                     width={52}
                   />
                   <Tooltip
-                    formatter={(value, name) => [`${Number(value).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`, name]}
-                    labelFormatter={(label) => {
-                      const row = monthlyByCat.rows.find(r => r.label === label);
-                      return row ? monthLabelFR(row.month) : label;
-                    }}
-                    contentStyle={{ borderRadius: 10, border: "1px solid #e5e7eb", fontSize: 12 }}
+                    content={
+                      <HistoTooltip
+                        categoryColors={categoryColors}
+                        monthlyByCatRows={monthlyByCat.rows}
+                      />
+                    }
                   />
                   {monthlyByCat.cats.map((cat) => (
                     <Bar
