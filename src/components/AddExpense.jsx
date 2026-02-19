@@ -14,6 +14,7 @@ export default function AddExpense({ categories, subcategoriesMap = {}, banks, a
   const [toAccountType, setToAccountType] = useState(accountTypes[0] ?? "Compte courant");
   const [kind, setKind] = useState("expense");
   const [person, setPerson] = useState("");
+  const [contributor, setContributor] = useState("external");
   const [justAdded, setJustAdded] = useState(false);
 
   // ── Modale "Ajouter un nouveau..." ──────────────────────────────────────────
@@ -122,7 +123,8 @@ useEffect(() => {
         accountType,
         date,
         note: note.trim(),
-        person: person.trim()
+        person: person.trim(),
+        contributor: (kind === "income" && accountType === "Compte commun") ? contributor : undefined,
       });
     }
 
@@ -130,6 +132,7 @@ useEffect(() => {
   setNote("");
   setPerson("");
   setSubcategory("");
+  setContributor("external");
 
   setJustAdded(true);
   setTimeout(() => setJustAdded(false), 1500);
@@ -382,6 +385,17 @@ useEffect(() => {
         )}
 
 
+
+        {kind === "income" && accountType === "Compte commun" && (
+          <label style={styles.label}>
+            Contributeur
+            <select value={contributor} onChange={(e) => setContributor(e.target.value)} style={styles.input}>
+              <option value="external">Externe</option>
+              <option value="me">Moi</option>
+              <option value="partner">Conjoint</option>
+            </select>
+          </label>
+        )}
 
         <label style={styles.label}>
           Date

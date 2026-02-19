@@ -484,7 +484,8 @@ export default function App() {
       date: payload.date,
       note: payload.note ?? "",
       person: (payload.person ?? "").trim(),
-      linkedExpenseId: payload.linkedExpenseId || undefined
+      linkedExpenseId: payload.linkedExpenseId || undefined,
+      contributor: payload.contributor ?? "external",
     };
 
     setExpenses(prev => [e, ...prev]);

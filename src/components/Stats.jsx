@@ -128,6 +128,9 @@ export default function Stats({
   // Sous-categories : camembert par sous-categorie pour une categorie parente
   const [subcatCategory, setSubcatCategory] = useState(savedFilters.subcatCategory);
 
+  // Mode B : "Mes dépenses réelles" (pondération par coefficient mensuel)
+  const [personalMode, setPersonalMode] = useState(savedFilters.personalMode ?? false);
+
   // Sauvegarder les filtres à chaque changement
   useEffect(() => {
     const currentFilters = {
@@ -138,10 +141,11 @@ export default function Stats({
       scope,
       selectedBank,
       selectedAccountType,
-      subcatCategory
+      subcatCategory,
+      personalMode
     };
     saveFilters("stats", currentFilters);
-  }, [mode, month, from, to, scope, selectedBank, selectedAccountType, subcatCategory]);
+  }, [mode, month, from, to, scope, selectedBank, selectedAccountType, subcatCategory, personalMode]);
 
   // Fonction pour réinitialiser tous les filtres
   const resetAllFilters = () => {
@@ -273,6 +277,27 @@ useEffect(() => {
 
 
 
+
+  // Coefficient mensuel dynamique : sumMe / (sumMe + sumPartner) par mois YYYY-MM
+  // Calculé sur TOUTES les dépenses (hors filtre de date) pour avoir un coefficient complet
+  const monthlyCoefficients = useMemo(() => {
+    const map = {};
+    for (const e of safeExpenses) {
+      if (e.kind !== "income" || e.accountType !== "Compte commun") continue;
+      if (e.contributor === "external" || !e.contributor) continue;
+      const m = String(e.date || "").slice(0, 7);
+      if (!m) continue;
+      if (!map[m]) map[m] = { me: 0, partner: 0 };
+      if (e.contributor === "me") map[m].me += Number(e.amount || 0);
+      if (e.contributor === "partner") map[m].partner += Number(e.amount || 0);
+    }
+    const result = {};
+    for (const [m, { me, partner }] of Object.entries(map)) {
+      const total = me + partner;
+      result[m] = total > 0 ? me / total : 0.5;
+    }
+    return result;
+  }, [safeExpenses]);
 
   // Filtre date uniquement — pour les camemberts par banque/type (pas affecté par les filtres banque/type)
   const statsFilteredDateOnly = useMemo(() => {
@@ -464,14 +489,23 @@ const expenseData = useMemo(() => {
     // ✅ comptable : on neutralise avec tous les remboursements liés (même hors période)
     const reimb = reimburseByExpenseId.get(e.id) || 0;
     const net = Math.max(0, gross - reimb);
-    map.set(cat, (map.get(cat) || 0) + net);
+
+    // Mode B : pondérer les dépenses du compte commun par le coefficient mensuel
+    let weighted = net;
+    if (personalMode && e.accountType === "Compte commun") {
+      const m = String(e.date || "").slice(0, 7);
+      const coeff = monthlyCoefficients[m] ?? 0.5;
+      weighted = net * coeff;
+    }
+
+    map.set(cat, (map.get(cat) || 0) + weighted);
   }
 
   return Array.from(map.entries())
     .map(([name, value]) => ({ name, value: Math.round(value * 100) / 100 }))
     .filter(d => d.value > 0)
     .sort((a, b) => b.value - a.value);
-}, [statsFiltered, safeCategories, reimburseByExpenseId]);
+}, [statsFiltered, safeCategories, reimburseByExpenseId, personalMode, monthlyCoefficients]);
 
 const incomeData = useMemo(() => {
   const map = new Map(safeCategories.map(c => [c, 0]));
@@ -711,8 +745,43 @@ const subcatData = useMemo(() => {
             )}
           </div>
 
-          {/* Bouton de réinitialisation des filtres */}
-          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: -4 }}>
+          {/* Bouton de réinitialisation des filtres + toggle Mode B */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginTop: -4 }}>
+            {/* Toggle Mode A / Mode B */}
+            <div style={{ display: "flex", gap: 0, alignItems: "center" }}>
+              <button
+                onClick={() => setPersonalMode(false)}
+                style={{
+                  padding: "6px 12px",
+                  borderRadius: "10px 0 0 10px",
+                  border: "1px solid #d4c9ae",
+                  background: !personalMode ? "#111827" : "#fdfaf5",
+                  color: !personalMode ? "white" : "#374151",
+                  fontSize: 12,
+                  cursor: "pointer",
+                  fontWeight: 600
+                }}
+              >
+                Dépenses brutes
+              </button>
+              <button
+                onClick={() => setPersonalMode(true)}
+                style={{
+                  padding: "6px 12px",
+                  borderRadius: "0 10px 10px 0",
+                  border: "1px solid #d4c9ae",
+                  borderLeft: "none",
+                  background: personalMode ? "#111827" : "#fdfaf5",
+                  color: personalMode ? "white" : "#374151",
+                  fontSize: 12,
+                  cursor: "pointer",
+                  fontWeight: 600
+                }}
+              >
+                Mes dépenses réelles
+              </button>
+            </div>
+
             <button
               onClick={resetAllFilters}
               style={{
@@ -733,8 +802,14 @@ const subcatData = useMemo(() => {
 
 
           <div style={styles.big}>
-            Dépenses net (filtre): <span style={{ fontWeight: 900 }}>{formatEUR(expenseTotal)}</span>
+            {personalMode ? "Mes dépenses réelles (filtre)" : "Dépenses net (filtre)"}: <span style={{ fontWeight: 900 }}>{formatEUR(expenseTotal)}</span>
           </div>
+          {personalMode && mode === "month" && month && month !== "ALL" && (
+            <div style={{ color: "#6b7280", fontSize: 12 }}>
+              Coefficient {month} : {Math.round((monthlyCoefficients[month] ?? 0.5) * 100)}%
+              {!monthlyCoefficients[month] && " (par défaut, aucun revenu contributeur ce mois)"}
+            </div>
+          )}
           <div style={styles.big}>
             Revenus (filtre): <span style={{ fontWeight: 900 }}>{formatEUR(incomeTotal)}</span>
           </div>

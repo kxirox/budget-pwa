@@ -427,6 +427,7 @@ const totals = useMemo(() => {
   const [editDate, setEditDate] = useState(new Date().toISOString().slice(0, 10));
   const [editNote, setEditNote] = useState("");
   const [editPerson, setEditPerson] = useState("");
+  const [editContributor, setEditContributor] = useState("external");
 
 
 
@@ -441,6 +442,7 @@ const totals = useMemo(() => {
     setEditDate(e.date ?? new Date().toISOString().slice(0, 10));
     setEditNote(e.note ?? "");
     setEditPerson(e.person ?? "");
+    setEditContributor(["me", "partner", "external"].includes(e.contributor) ? e.contributor : "external");
     setEditKind(e.kind ?? "expense");
     setEditLinkedExpenseId(e.linkedExpenseId ?? "");
     setEditOriginal(e);
@@ -482,7 +484,8 @@ function makeId() {
     accountType: editAccountType,
     date: editDate,
     note: editNote.trim(),
-    person: String(editPerson || "").trim()
+    person: String(editPerson || "").trim(),
+    contributor: (editKind === "income" && editAccountType === "Compte commun") ? editContributor : "external",
   };
 
   // ✅ V2: conversion en virement interne => création automatique de l'opération miroir
@@ -675,6 +678,20 @@ const renderItem = useCallback((e) => {
           • {e.accountType ?? "Compte courant"}
           {e.person ? ` • ${e.person}` : ""}
           {e.note ? ` • ${e.note}` : ""}
+          {e.kind === "income" && e.accountType === "Compte commun" && e.contributor && e.contributor !== "external" && (
+            <span style={{
+              display: "inline-block",
+              background: e.contributor === "me" ? "#dcfce7" : "#dbeafe",
+              color: e.contributor === "me" ? "#166534" : "#1e40af",
+              padding: "1px 6px",
+              borderRadius: 8,
+              fontSize: 11,
+              marginLeft: 4,
+              verticalAlign: "middle"
+            }}>
+              {e.contributor === "me" ? "Moi" : "Conjoint"}
+            </span>
+          )}
         </div>
       </div>
 
@@ -1208,6 +1225,17 @@ const renderItem = useCallback((e) => {
                   ))}
                 </datalist>
               </label>
+
+              {editKind === "income" && editAccountType === "Compte commun" && (
+                <label style={styles.label}>
+                  Contributeur
+                  <select value={editContributor} onChange={(e) => setEditContributor(e.target.value)} style={styles.input}>
+                    <option value="external">Externe</option>
+                    <option value="me">Moi</option>
+                    <option value="partner">Conjoint</option>
+                  </select>
+                </label>
+              )}
 
               <label style={styles.label}>
                 Banque

@@ -145,7 +145,8 @@ export function loadExpenses() {
       bank: e.bank ?? "Physique",
       accountType: e.accountType ?? "Compte courant",
       // Nouveau champ optionnel (rétro-compatible)
-      subcategory: typeof e.subcategory === "string" ? e.subcategory : (e.subcategory == null ? "" : String(e.subcategory))
+      subcategory: typeof e.subcategory === "string" ? e.subcategory : (e.subcategory == null ? "" : String(e.subcategory)),
+      contributor: ["me", "partner", "external"].includes(e.contributor) ? e.contributor : "external",
   };
 });
 
