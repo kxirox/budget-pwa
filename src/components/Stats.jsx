@@ -299,6 +299,26 @@ useEffect(() => {
     return result;
   }, [safeExpenses]);
 
+  // Tableau mensuel des contributions au compte commun (Moi / Conjoint / coefficient)
+  const contributorTable = useMemo(() => {
+    const map = {};
+    for (const e of safeExpenses) {
+      if (e.kind !== "income" || e.accountType !== "Compte commun") continue;
+      const m = String(e.date || "").slice(0, 7);
+      if (!m) continue;
+      if (!map[m]) map[m] = { me: 0, partner: 0, external: 0 };
+      const c = ["me", "partner", "external"].includes(e.contributor) ? e.contributor : "external";
+      map[m][c] += Number(e.amount || 0);
+    }
+    return Object.entries(map)
+      .map(([month, { me, partner, external }]) => {
+        const total = me + partner;
+        const coeff = total > 0 ? me / total : null;
+        return { month, me, partner, external, coeff };
+      })
+      .sort((a, b) => b.month.localeCompare(a.month));
+  }, [safeExpenses]);
+
   // Filtre date uniquement — pour les camemberts par banque/type (pas affecté par les filtres banque/type)
   const statsFilteredDateOnly = useMemo(() => {
     return safeExpenses.filter(e => {
@@ -822,7 +842,41 @@ const subcatData = useMemo(() => {
         </div>
       </div>
 
-      
+      {/* ── Tableau contributions mensuelles compte commun ── */}
+      {contributorTable.length > 0 && (() => {
+        const thStyle = { padding: "4px 8px", fontWeight: 600, fontSize: 12, color: "#6b7280" };
+        const tdStyle = { padding: "6px 8px" };
+        return (
+          <div style={styles.card}>
+            <div style={{ fontWeight: 700, marginBottom: 8, fontSize: 14 }}>Compte commun — contributions mensuelles</div>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead>
+                <tr style={{ textAlign: "left", borderBottom: "1px solid #e5e7eb" }}>
+                  <th style={thStyle}>Mois</th>
+                  <th style={thStyle}>Moi</th>
+                  <th style={thStyle}>Conjoint</th>
+                  <th style={thStyle}>Coefficient</th>
+                </tr>
+              </thead>
+              <tbody>
+                {contributorTable.map(({ month, me, partner, coeff }) => (
+                  <tr key={month} style={{ borderTop: "1px solid #f3f4f6" }}>
+                    <td style={tdStyle}>{monthLabelFR(month)}</td>
+                    <td style={tdStyle}>{formatEUR(me)}</td>
+                    <td style={tdStyle}>{formatEUR(partner)}</td>
+                    <td style={tdStyle}>
+                      {coeff !== null
+                        ? <span style={{ fontWeight: 700, color: "#111827" }}>{Math.round(coeff * 100)}%</span>
+                        : <span style={{ color: "#9ca3af" }}>—</span>
+                      }
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+      })()}
 
       {/* ── Camemberts solde par banque + par type de compte ── */}
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>

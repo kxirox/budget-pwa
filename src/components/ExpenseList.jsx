@@ -320,6 +320,8 @@ const totals = useMemo(() => {
   const [bulkNoteTouched, setBulkNoteTouched] = useState(false);
   const [bulkPerson, setBulkPerson] = useState("");
   const [bulkPersonTouched, setBulkPersonTouched] = useState(false);
+  const [bulkContributor, setBulkContributor] = useState("");
+  const [bulkContributorTouched, setBulkContributorTouched] = useState(false);
 
   // Calcule la valeur commune d'un champ parmi les lignes sélectionnées
   const commonValue = (field) => {
@@ -346,6 +348,8 @@ const totals = useMemo(() => {
     setBulkNoteTouched(false);
     setBulkPerson(cv("person"));
     setBulkPersonTouched(false);
+    setBulkContributor("");
+    setBulkContributorTouched(false);
     setBulkEditOpen(true);
   };
 
@@ -362,6 +366,7 @@ const totals = useMemo(() => {
     if (bulkDateTouched && bulkDate) changes.push("date");
     if (bulkNoteTouched) changes.push("note");
     if (bulkPersonTouched) changes.push("personne");
+    if (bulkContributorTouched && bulkContributor) changes.push("contributeur");
 
     if (changes.length === 0) {
       alert("Aucun champ modifié. Modifie au moins un champ pour appliquer.");
@@ -394,6 +399,10 @@ const totals = useMemo(() => {
       if (bulkDateTouched && bulkDate) patch.date = bulkDate;
       if (bulkNoteTouched) patch.note = bulkNote.trim();
       if (bulkPersonTouched) patch.person = bulkPerson.trim();
+      // Contributeur : uniquement pour les revenus du compte commun
+      if (bulkContributorTouched && bulkContributor && e.kind === "income" && e.accountType === "Compte commun") {
+        patch.contributor = bulkContributor;
+      }
 
       if (Object.keys(patch).length > 0) {
         onUpdate(e.id, patch);
@@ -1451,6 +1460,26 @@ const renderItem = useCallback((e) => {
                   </div>
                 );
               })()}
+
+              {/* Contributeur — visible uniquement si la sélection contient des revenus Compte commun */}
+              {expenses.some(e => selectedIds.has(e.id) && e.kind === "income" && e.accountType === "Compte commun") && (
+                <div style={styles.bulkField}>
+                  <div style={styles.bulkFieldHeader}>
+                    <span style={styles.label}>Contributeur</span>
+                    {bulkContributorTouched && <span style={styles.bulkModifiedBadge}>● modifié</span>}
+                  </div>
+                  <select
+                    value={bulkContributor}
+                    onChange={(e) => { setBulkContributor(e.target.value); setBulkContributorTouched(true); }}
+                    style={{ ...styles.input, borderColor: bulkContributorTouched ? "#c9a84c" : "#d4c9ae" }}
+                  >
+                    {!bulkContributorTouched && <option value="">— Choisir —</option>}
+                    <option value="external">Externe</option>
+                    <option value="me">Moi</option>
+                    <option value="partner">Conjoint</option>
+                  </select>
+                </div>
+              )}
 
             </div>
 
