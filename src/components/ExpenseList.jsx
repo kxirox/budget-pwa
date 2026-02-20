@@ -399,8 +399,8 @@ const totals = useMemo(() => {
       if (bulkDateTouched && bulkDate) patch.date = bulkDate;
       if (bulkNoteTouched) patch.note = bulkNote.trim();
       if (bulkPersonTouched) patch.person = bulkPerson.trim();
-      // Contributeur : uniquement pour les revenus du compte commun
-      if (bulkContributorTouched && bulkContributor && e.kind === "income" && e.accountType === "Compte commun") {
+      // Contributeur : pour les revenus ET virements entrants du compte commun
+      if (bulkContributorTouched && bulkContributor && (e.kind === "income" || e.kind === "transfer_in") && e.accountType === "Compte commun") {
         patch.contributor = bulkContributor;
       }
 
@@ -494,7 +494,7 @@ function makeId() {
     date: editDate,
     note: editNote.trim(),
     person: String(editPerson || "").trim(),
-    contributor: (editKind === "income" && editAccountType === "Compte commun") ? editContributor : "external",
+    contributor: ((editKind === "income" || editKind === "transfer_in") && editAccountType === "Compte commun") ? editContributor : "external",
   };
 
   // ✅ V2: conversion en virement interne => création automatique de l'opération miroir
@@ -687,7 +687,7 @@ const renderItem = useCallback((e) => {
           • {e.accountType ?? "Compte courant"}
           {e.person ? ` • ${e.person}` : ""}
           {e.note ? ` • ${e.note}` : ""}
-          {e.kind === "income" && e.accountType === "Compte commun" && e.contributor && e.contributor !== "external" && (
+          {(e.kind === "income" || e.kind === "transfer_in") && e.accountType === "Compte commun" && e.contributor && e.contributor !== "external" && (
             <span style={{
               display: "inline-block",
               background: e.contributor === "me" ? "#dcfce7" : "#dbeafe",
@@ -1235,7 +1235,7 @@ const renderItem = useCallback((e) => {
                 </datalist>
               </label>
 
-              {editKind === "income" && editAccountType === "Compte commun" && (
+              {(editKind === "income" || editKind === "transfer_in") && editAccountType === "Compte commun" && (
                 <label style={styles.label}>
                   Contributeur
                   <select value={editContributor} onChange={(e) => setEditContributor(e.target.value)} style={styles.input}>
@@ -1462,7 +1462,7 @@ const renderItem = useCallback((e) => {
               })()}
 
               {/* Contributeur — visible uniquement si la sélection contient des revenus Compte commun */}
-              {expenses.some(e => selectedIds.has(e.id) && e.kind === "income" && e.accountType === "Compte commun") && (
+              {expenses.some(e => selectedIds.has(e.id) && (e.kind === "income" || e.kind === "transfer_in") && e.accountType === "Compte commun") && (
                 <div style={styles.bulkField}>
                   <div style={styles.bulkFieldHeader}>
                     <span style={styles.label}>Contributeur</span>

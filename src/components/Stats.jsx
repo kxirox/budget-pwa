@@ -283,8 +283,12 @@ useEffect(() => {
   const monthlyCoefficients = useMemo(() => {
     const map = {};
     for (const e of safeExpenses) {
-      if (e.kind !== "income" || e.accountType !== "Compte commun") continue;
-      if (e.contributor === "external" || !e.contributor) continue;
+      const isCommonContrib =
+        (e.kind === "income" || e.kind === "transfer_in") &&
+        e.accountType === "Compte commun" &&
+        e.contributor !== "external" &&
+        e.contributor;
+      if (!isCommonContrib) continue;
       const m = String(e.date || "").slice(0, 7);
       if (!m) continue;
       if (!map[m]) map[m] = { me: 0, partner: 0 };
@@ -303,7 +307,7 @@ useEffect(() => {
   const contributorTable = useMemo(() => {
     const map = {};
     for (const e of safeExpenses) {
-      if (e.kind !== "income" || e.accountType !== "Compte commun") continue;
+      if ((e.kind !== "income" && e.kind !== "transfer_in") || e.accountType !== "Compte commun") continue;
       const m = String(e.date || "").slice(0, 7);
       if (!m) continue;
       if (!map[m]) map[m] = { me: 0, partner: 0, external: 0 };

@@ -466,7 +466,9 @@ export default function App() {
         accountType: payload.toAccountType,
         date: payload.date,
         note: payload.note ?? "",
-        person: ""
+        person: "",
+        // Apport automatique "Moi" si virement vers le Compte commun
+        contributor: payload.toAccountType === "Compte commun" ? "me" : "external",
       };
 
       setExpenses(prev => [inn, out, ...prev]);
