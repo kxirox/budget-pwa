@@ -510,7 +510,6 @@ function createReimbursement({ linkedExpenseId, amount, date, bank, accountType,
     person: (person ?? "").trim()
   };
   setExpenses(prev => [e, ...prev]);
-  setTab("list");
 }
 
 function deleteExpense(id) {

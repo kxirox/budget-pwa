@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { currentMonthKey, formatEUR, monthLabelFR } from "../utils";
+import { currentMonthKey, formatEUR, monthLabelFR, toISODate } from "../utils";
 import { saveFilters, loadFilters } from "../filterStorage";
 
 // A SUPPRIMER SI PAS DE BUG LORS DU RUN
@@ -438,6 +438,11 @@ const totals = useMemo(() => {
   const [editPerson, setEditPerson] = useState("");
   const [editContributor, setEditContributor] = useState("external");
 
+  // ── Modal remboursement rapide ──
+  const [reimbModalExpense, setReimbModalExpense] = useState(null);
+  const [reimbAmount, setReimbAmount] = useState("");
+  const [reimbDate, setReimbDate] = useState("");
+
 
 
 
@@ -470,6 +475,36 @@ const totals = useMemo(() => {
 
   function closeEdit() {
     setEditingId(null);
+  }
+
+  function openReimbModal(expense) {
+    setReimbModalExpense(expense);
+    setReimbAmount(String(expense.amount));
+    setReimbDate(toISODate(new Date()));
+  }
+
+  function closeReimbModal() {
+    setReimbModalExpense(null);
+    setReimbAmount("");
+    setReimbDate("");
+  }
+
+  function submitReimb() {
+    const a = Number(String(reimbAmount).replace(",", "."));
+    if (!Number.isFinite(a) || a <= 0) {
+      alert("Montant invalide.");
+      return;
+    }
+    onCreateReimbursement({
+      linkedExpenseId: reimbModalExpense.id,
+      amount: a,
+      date: reimbDate,
+      bank: reimbModalExpense.bank,
+      accountType: reimbModalExpense.accountType,
+      note: "",
+      person: reimbModalExpense.person ?? "",
+    });
+    closeReimbModal();
   }
 
 function makeId() {
@@ -707,13 +742,22 @@ const renderItem = useCallback((e) => {
       {/* Boutons éditer/supprimer — masqués en mode sélection */}
       {!selectionMode && (
         <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+          {e.kind === "expense" && (
+            <button
+              onClick={() => openReimbModal(e)}
+              style={styles.btnReimb}
+              title="Ajouter un remboursement"
+            >
+              ↩
+            </button>
+          )}
           <button onClick={() => openEdit(e)} style={styles.btnEdit}>Éditer</button>
           <button onClick={() => onDelete(e.id)} style={styles.btnDanger}>Suppr.</button>
         </div>
       )}
     </div>
   );
-}, [categoryColors, formatEUR, reimburseByExpenseId, openEdit, onDelete, selectionMode, selectedIds, handlePointerDown, handlePointerMove, handlePointerUp, toggleSelect]);
+}, [categoryColors, formatEUR, reimburseByExpenseId, openEdit, onDelete, selectionMode, selectedIds, handlePointerDown, handlePointerMove, handlePointerUp, toggleSelect, openReimbModal]);
 //fonction remplacant ce qu'il y a dans le filtrered.map
 
 
@@ -1494,6 +1538,55 @@ const renderItem = useCallback((e) => {
         </div>
       )}
 
+      {/* ── Modal remboursement rapide ── */}
+      {reimbModalExpense && (
+        <div style={styles.modalBackdrop} onClick={closeReimbModal}>
+          <div style={styles.modal} onClick={ev => ev.stopPropagation()}>
+
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <h3 style={{ margin: 0, fontSize: 16 }}>↩ Rembourser cette dépense</h3>
+              <button onClick={closeReimbModal} style={styles.btnX}>✕</button>
+            </div>
+
+            {/* Rappel de la dépense d'origine */}
+            <div style={{ background: "#f9fafb", borderRadius: 10, padding: "8px 12px", marginBottom: 14, fontSize: 13, color: "#374151" }}>
+              <strong>{reimbModalExpense.category}</strong>
+              {reimbModalExpense.note ? ` — ${reimbModalExpense.note}` : ""}
+              <span style={{ float: "right", fontWeight: 700 }}>
+                {formatEUR(reimbModalExpense.amount)}
+              </span>
+            </div>
+
+            <div style={{ display: "grid", gap: 12 }}>
+              <label style={styles.label}>
+                Montant remboursé (€)
+                <input
+                  inputMode="decimal"
+                  value={reimbAmount}
+                  onChange={e => setReimbAmount(e.target.value)}
+                  style={styles.input}
+                />
+              </label>
+
+              <label style={styles.label}>
+                Date du remboursement
+                <input
+                  type="date"
+                  value={reimbDate}
+                  onChange={e => setReimbDate(e.target.value)}
+                  style={styles.input}
+                />
+              </label>
+            </div>
+
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 16 }}>
+              <button onClick={closeReimbModal} style={styles.btnSecondary}>Annuler</button>
+              <button onClick={submitReimb} style={styles.btnPrimary}>✅ Créer le remboursement</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Snackbar undo ── */}
       {snackbar && (
         <div style={styles.snackbar}>
@@ -1588,6 +1681,16 @@ const styles = {
     background: "#ef4444",
     color: "white",
     fontWeight: 900,
+  },
+  btnReimb: {
+    padding: "6px 10px",
+    borderRadius: 10,
+    border: "1px solid #d1d5db",
+    background: "#f0fdf4",
+    color: "#16a34a",
+    fontSize: 14,
+    cursor: "pointer",
+    fontWeight: 700,
   },
   empty: { color: "#6b7280", textAlign: "center", padding: 24 },
 

@@ -147,6 +147,17 @@ export default function Stats({
     saveFilters("stats", currentFilters);
   }, [mode, month, from, to, scope, selectedBank, selectedAccountType, subcatCategory, personalMode]);
 
+  // Raccourci : 30 derniers jours glissants
+  const applyLast30Days = () => {
+    const today = new Date();
+    const d30 = new Date(today);
+    d30.setDate(today.getDate() - 30);
+    const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    setMode("range");
+    setFrom(fmt(d30));
+    setTo(fmt(today));
+  };
+
   // Fonction pour réinitialiser tous les filtres
   const resetAllFilters = () => {
     setMode("month");
@@ -435,11 +446,15 @@ useEffect(() => {
       const row = rowByMonth.get(mk);
       if (!row) continue;
       const cat = e.category || "Autres";
-      row[cat] = Math.round(((row[cat] || 0) + Number(e.amount || 0)) * 100) / 100;
+      // Net : on déduit les remboursements liés (même logique que le camembert)
+      const gross = Number(e.amount || 0);
+      const reimb = reimburseByExpenseId.get(e.id) || 0;
+      const net = Math.max(0, gross - reimb);
+      row[cat] = Math.round(((row[cat] || 0) + net) * 100) / 100;
     }
 
     return { rows, cats };
-  }, [statsFiltered]);
+  }, [statsFiltered, reimburseByExpenseId]);
 
 
 
@@ -700,6 +715,37 @@ const subcatData = useMemo(() => {
 
       <div style={styles.card}>
         <div style={{ display: "grid", gap: 10 }}>
+          {/* Raccourcis de période */}
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            <button
+              onClick={applyLast30Days}
+              style={{
+                padding: "5px 12px",
+                borderRadius: 20,
+                border: "1px solid #d1d5db",
+                background: (mode === "range" && (() => {
+                  const today = new Date();
+                  const d30 = new Date(today);
+                  d30.setDate(today.getDate() - 30);
+                  const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+                  return from === fmt(d30) && to === fmt(today);
+                })()) ? "#111827" : "#f3f4f6",
+                color: (mode === "range" && (() => {
+                  const today = new Date();
+                  const d30 = new Date(today);
+                  d30.setDate(today.getDate() - 30);
+                  const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+                  return from === fmt(d30) && to === fmt(today);
+                })()) ? "white" : "#374151",
+                fontSize: 12,
+                cursor: "pointer",
+                fontWeight: 600,
+              }}
+            >
+              30 jours glissants
+            </button>
+          </div>
+
           {/* Filters - responsive */}
           <div
             style={{
