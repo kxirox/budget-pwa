@@ -131,6 +131,9 @@ export default function Stats({
   // Mode B : "Mes dépenses réelles" (pondération par coefficient mensuel)
   const [personalMode, setPersonalMode] = useState(savedFilters.personalMode ?? false);
 
+  // Accordéon tableau contributions
+  const [showAllContrib, setShowAllContrib] = useState(false);
+
   // Sauvegarder les filtres à chaque changement
   useEffect(() => {
     const currentFilters = {
@@ -896,6 +899,8 @@ const subcatData = useMemo(() => {
       {contributorTable.length > 0 && (() => {
         const thStyle = { padding: "4px 8px", fontWeight: 600, fontSize: 12, color: "#6b7280" };
         const tdStyle = { padding: "6px 8px" };
+        const visibleRows = showAllContrib ? contributorTable : contributorTable.slice(0, 3);
+        const hiddenCount = contributorTable.length - 3;
         return (
           <div style={styles.card}>
             <div style={{ fontWeight: 700, marginBottom: 8, fontSize: 14 }}>Compte commun — contributions mensuelles</div>
@@ -909,7 +914,7 @@ const subcatData = useMemo(() => {
                 </tr>
               </thead>
               <tbody>
-                {contributorTable.map(({ month, me, partner, coeff }) => (
+                {visibleRows.map(({ month, me, partner, coeff }) => (
                   <tr key={month} style={{ borderTop: "1px solid #f3f4f6" }}>
                     <td style={tdStyle}>{monthLabelFR(month)}</td>
                     <td style={tdStyle}>{formatEUR(me)}</td>
@@ -924,6 +929,27 @@ const subcatData = useMemo(() => {
                 ))}
               </tbody>
             </table>
+            {hiddenCount > 0 && (
+              <button
+                onClick={() => setShowAllContrib(v => !v)}
+                style={{
+                  marginTop: 10,
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  fontSize: 12,
+                  color: "#6b7280",
+                  padding: "4px 0",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                }}
+              >
+                {showAllContrib
+                  ? "▲ Réduire"
+                  : `▼ Voir les ${hiddenCount} mois précédents`}
+              </button>
+            )}
           </div>
         );
       })()}
