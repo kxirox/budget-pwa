@@ -332,8 +332,22 @@ export default function App() {
     return unique.length ? unique : ["Autres"];
   }, [categories]);
 
+  // Listes fusionnées : valeurs configurées + valeurs orphelines présentes dans les données
+  // Garantit que supprimer une banque/type/catégorie de la config ne cache pas les données existantes
+  const mergedBanks = useMemo(() => {
+    const fromData = [...new Set(expenses.map(e => e.bank).filter(Boolean))];
+    return [...new Set([...banks, ...fromData])];
+  }, [banks, expenses]);
 
+  const mergedAccountTypes = useMemo(() => {
+    const fromData = [...new Set(expenses.map(e => e.accountType).filter(Boolean))];
+    return [...new Set([...accountTypes, ...fromData])];
+  }, [accountTypes, expenses]);
 
+  const mergedCategories = useMemo(() => {
+    const fromData = [...new Set(expenses.map(e => e.category).filter(Boolean))];
+    return [...new Set([...safeCategories, ...fromData])];
+  }, [safeCategories, expenses]);
 
  //choix des couleurs des category dans les graphiques
   useEffect(() => {
@@ -908,7 +922,7 @@ function updateExpense(id, patch) {
       {tab === "list" && (
         <ExpenseList
           expenses={expenses}
-          categories={safeCategories}
+          categories={mergedCategories}
           subcategoriesMap={subcategoriesMap}
           categoryColors={categoryColors}
           people={people}
@@ -917,20 +931,20 @@ function updateExpense(id, patch) {
           onImport={(rows) => setExpenses(prev => [...rows, ...prev])}
           onCreateReimbursement={createReimbursement}
           onOpenWipeModal={() => setShowWipeModal(true)}
-          banks={banks}
-          accountTypes={accountTypes}
+          banks={mergedBanks}
+          accountTypes={mergedAccountTypes}
         />
       )}
 
       {tab === "stats" && (
         <Stats
           expenses={expenses}
-          categories={safeCategories}
+          categories={mergedCategories}
           subcategoriesMap={subcategoriesMap}
           categoryColors={categoryColors}
           filters={{ bank: "ALL", accountType: "ALL", category: "ALL" }}
-          banks={banks}
-          accountTypes={accountTypes}
+          banks={mergedBanks}
+          accountTypes={mergedAccountTypes}
           performance={performance}
           perfScope={perfScope}
           setPerfScope={setPerfScope}
