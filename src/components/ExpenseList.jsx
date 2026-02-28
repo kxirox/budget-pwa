@@ -2,12 +2,13 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { currentMonthKey, formatEUR, monthLabelFR, toISODate } from "../utils";
 import { saveFilters, loadFilters } from "../filterStorage";
+import { getAccountCurrency, toEUR } from "../storage";
 
 // A SUPPRIMER SI PAS DE BUG LORS DU RUN
 // import ImportCreditMutuel from "./ImportCreditMutuel";
 
 
-export default function ExpenseList({ expenses, categories, subcategoriesMap = {}, categoryColors = {}, banks, accountTypes, people = [], onDelete, onUpdate, onImport, onCreateReimbursement, onOpenWipeModal }) {
+export default function ExpenseList({ expenses, categories, subcategoriesMap = {}, categoryColors = {}, banks, accountTypes, people = [], onDelete, onUpdate, onImport, onCreateReimbursement, onOpenWipeModal, accountCurrencies = {}, exchangeRates = {}, setExchangeRates }) {
   // Filtres par défaut
   const defaultFilters = {
     month: "ALL",
@@ -136,42 +137,76 @@ const reimburseByExpenseId = useMemo(() => {
 
 
 const totals = useMemo(() => {
-  let income = 0;
-  let reimbursements = 0;
-  let transfersIn = 0;
-  let transfersOut = 0;
+  // Détecter si toutes les opérations filtrées sont dans une seule devise non-EUR
+  // (pour afficher le montant natif + conversion EUR)
+  const currenciesInFilter = new Set(
+    filtered.map(e => getAccountCurrency(accountCurrencies, e.bank, e.accountType))
+  );
+  const singleNativeCurrency =
+    currenciesInFilter.size === 1 && !currenciesInFilter.has("EUR")
+      ? [...currenciesInFilter][0]
+      : null;
 
-  // ✅ "Comptable" : on rattache les remboursements à la dépense d'origine.
-  // Donc les dépenses du filtre sont neutralisées même si le remboursement est hors période.
+  // Helper : montant EUR converti
+  const amountEUR = (e) => {
+    const currency = getAccountCurrency(accountCurrencies, e.bank, e.accountType);
+    return toEUR(Number(e.amount || 0), currency, exchangeRates);
+  };
+
+  // Helper : montant natif (sans conversion)
+  const amountNative = (e) => Number(e.amount || 0);
+
+  let income = 0, reimbursements = 0, transfersIn = 0, transfersOut = 0;
+  let incomeNative = 0, reimbursementsNative = 0, transfersInNative = 0, transfersOutNative = 0;
+
   for (const e of filtered) {
-    const a = Number(e.amount || 0);
-    if (e.kind === "income") income += a;
-    if (e.kind === "reimbursement") reimbursements += a; // total cash dans la période
-    if (e.kind === "transfer_in") transfersIn += a;
-    if (e.kind === "transfer_out") transfersOut += a;
+    if (e.kind === "income") {
+      income += amountEUR(e);
+      incomeNative += amountNative(e);
+    }
+    if (e.kind === "reimbursement") {
+      reimbursements += amountEUR(e);
+      reimbursementsNative += amountNative(e);
+    }
+    if (e.kind === "transfer_in") {
+      transfersIn += amountEUR(e);
+      transfersInNative += amountNative(e);
+    }
+    if (e.kind === "transfer_out") {
+      const currency = getAccountCurrency(accountCurrencies, e.bank, e.accountType);
+      // Pour transfer_out cross-devise sortant : amountTo figé en EUR
+      if (currency !== "EUR" && e.amountTo != null) {
+        transfersOut += Number(e.amountTo);
+      } else {
+        transfersOut += amountEUR(e);
+      }
+      transfersOutNative += amountNative(e);
+    }
   }
 
-  let expenseGross = 0;
-  let expenseNet = 0;
+  let expenseGross = 0, expenseNet = 0;
+  let expenseGrossNative = 0, expenseNetNative = 0;
 
   for (const e of filtered) {
     if (e.kind !== "expense") continue;
-    const a = Number(e.amount || 0);
+    const a = amountEUR(e);
+    const aNative = amountNative(e);
     expenseGross += a;
+    expenseGrossNative += aNative;
     const reimb = reimburseByExpenseId.get(e.id) || 0;
-    const net = Math.max(0, a - reimb);
-    expenseNet += net;
+    expenseNet += Math.max(0, a - reimb);
+    expenseNetNative += Math.max(0, aNative - reimb);
   }
 
   return {
-    income,
-    reimbursements,
-    expenseGross,
-    expenseNet,
-    // Solde bancaire (cash) pour la période : revenus + remboursements + virements entrants - dépenses brutes - virements sortants
-    net: income + reimbursements + transfersIn - expenseGross - transfersOut
+    income, reimbursements, expenseGross, expenseNet,
+    net: income + reimbursements + transfersIn - expenseGross - transfersOut,
+    // Valeurs natives (CHF brut, sans conversion)
+    incomeNative, reimbursementsNative, expenseGrossNative, expenseNetNative,
+    netNative: incomeNative + reimbursementsNative + transfersInNative - expenseGrossNative - transfersOutNative,
+    singleNativeCurrency, // ex: "CHF" ou null
   };
-}, [filtered, reimburseByExpenseId]);
+}, [filtered, reimburseByExpenseId, accountCurrencies, exchangeRates]);
 
   // ---- SELECTION MODE (appui long) ----
   const [selectionMode, setSelectionMode] = useState(false);
@@ -253,7 +288,7 @@ const totals = useMemo(() => {
   const handleBulkDelete = () => {
     const n = selectedIds.size;
     if (!window.confirm(`Tu vas supprimer définitivement ${n} opération${n > 1 ? "s" : ""}. Cette action est irréversible.`)) return;
-    selectedIds.forEach(id => onDelete(id));
+    selectedIds.forEach(id => onDelete(id, true));
     exitSelectionMode();
   };
 
@@ -437,11 +472,14 @@ const totals = useMemo(() => {
   const [editNote, setEditNote] = useState("");
   const [editPerson, setEditPerson] = useState("");
   const [editContributor, setEditContributor] = useState("external");
+  // Champs cross-devise pour les virements
+  const [editAmountTo, setEditAmountTo] = useState("");
 
   // ── Modal remboursement rapide ──
   const [reimbModalExpense, setReimbModalExpense] = useState(null);
   const [reimbAmount, setReimbAmount] = useState("");
   const [reimbDate, setReimbDate] = useState("");
+  const [reimbPerson, setReimbPerson] = useState("");
 
 
 
@@ -461,16 +499,29 @@ const totals = useMemo(() => {
     setEditLinkedExpenseId(e.linkedExpenseId ?? "");
     setEditOriginal(e);
 
+    // Montant cross-devise figé au moment de la saisie
+    setEditAmountTo(e.amountTo != null ? String(e.amountTo) : "");
+
     // gestion de l'édition des virements internes
-    // Destination par défaut : si possible différent du compte source
-    setEditDestBank(
-      (banks || []).find((b) => b !== (e.bank ?? banks?.[0])) ?? (banks?.[0] ?? "Physique")
-    );
-    setEditDestAccountType(
-      (accountTypes || []).find((t) => t !== (e.accountType ?? accountTypes?.[0])) ?? (accountTypes?.[0] ?? "Compte courant")
-    );
-
-
+    // Si c'est un transfer_out existant avec transferId, on retrouve la ligne miroir pour pré-remplir destination réelle
+    if (e.kind === "transfer_out" && e.transferId) {
+      const mirror = expenses.find(x => x.kind === "transfer_in" && x.transferId === e.transferId);
+      if (mirror) {
+        setEditDestBank(mirror.bank ?? (banks?.[0] ?? "Physique"));
+        setEditDestAccountType(mirror.accountType ?? (accountTypes?.[0] ?? "Compte courant"));
+      } else {
+        setEditDestBank((banks || []).find((b) => b !== (e.bank ?? banks?.[0])) ?? (banks?.[0] ?? "Physique"));
+        setEditDestAccountType((accountTypes || []).find((t) => t !== (e.accountType ?? accountTypes?.[0])) ?? (accountTypes?.[0] ?? "Compte courant"));
+      }
+    } else {
+      // Destination par défaut : si possible différent du compte source
+      setEditDestBank(
+        (banks || []).find((b) => b !== (e.bank ?? banks?.[0])) ?? (banks?.[0] ?? "Physique")
+      );
+      setEditDestAccountType(
+        (accountTypes || []).find((t) => t !== (e.accountType ?? accountTypes?.[0])) ?? (accountTypes?.[0] ?? "Compte courant")
+      );
+    }
   }
 
   function closeEdit() {
@@ -479,14 +530,16 @@ const totals = useMemo(() => {
 
   function openReimbModal(expense) {
     setReimbModalExpense(expense);
-    setReimbAmount(String(expense.amount));
+    setReimbAmount("");
     setReimbDate(toISODate(new Date()));
+    setReimbPerson(expense.person ?? "");
   }
 
   function closeReimbModal() {
     setReimbModalExpense(null);
     setReimbAmount("");
     setReimbDate("");
+    setReimbPerson("");
   }
 
   function submitReimb() {
@@ -502,9 +555,12 @@ const totals = useMemo(() => {
       bank: reimbModalExpense.bank,
       accountType: reimbModalExpense.accountType,
       note: "",
-      person: reimbModalExpense.person ?? "",
+      person: reimbPerson.trim(),
     });
-    closeReimbModal();
+    // Rester dans le modal pour pouvoir ajouter d'autres remboursements
+    setReimbAmount("");
+    setReimbPerson("");
+    // reimbDate reste inchangée (pratique pour plusieurs remb le même jour)
   }
 
 function makeId() {
@@ -516,6 +572,20 @@ function makeId() {
   if (!Number.isFinite(a) || a <= 0) {
     alert("Montant invalide.");
     return;
+  }
+
+  // Calcul cross-devise
+  const currencyFrom = getAccountCurrency(accountCurrencies, editBank, editAccountType);
+  const currencyTo = getAccountCurrency(accountCurrencies, editDestBank, editDestAccountType);
+  const isCrossDevise = editKind === "transfer_out" && currencyFrom !== currencyTo;
+
+  let aTo = a; // par défaut même montant
+  if (isCrossDevise) {
+    aTo = Number(String(editAmountTo).replace(",", "."));
+    if (!Number.isFinite(aTo) || aTo <= 0) {
+      alert("Montant crédité invalide. Saisis le montant reçu dans la devise de destination.");
+      return;
+    }
   }
 
   const updated = {
@@ -546,11 +616,23 @@ function makeId() {
 
     const transferId = makeId();
 
-    // 1) Update la ligne actuelle en transfer_out
+    // Mémorisation auto du taux si cross-devise
+    if (isCrossDevise && setExchangeRates) {
+      const implicitRate = Math.round((aTo / a) * 100000) / 100000;
+      const rateKey = `${currencyFrom}_EUR`;
+      // Si on part de CHF vers EUR : aTo est en EUR, taux = aTo / a
+      // Si on part de EUR vers CHF : aTo est en CHF, taux on ne connaît pas directement → on stocke EUR_CHF inverse
+      if (currencyTo === "EUR") {
+        setExchangeRates(prev => ({ ...prev, [rateKey]: implicitRate }));
+      }
+    }
+
+    // 1) Update la ligne actuelle en transfer_out avec champs cross-devise
     onUpdate(editingId, {
       ...updated,
       kind: "transfer_out",
-      transferId
+      transferId,
+      ...(isCrossDevise ? { amountTo: Math.round(aTo * 100) / 100, currencyFrom, currencyTo } : {}),
     });
 
     // 2) Crée la ligne miroir transfer_in sur le compte destination
@@ -558,18 +640,56 @@ function makeId() {
       id: makeId(),
       kind: "transfer_in",
       transferId,
-      amount: updated.amount,
-      category: updated.category, // tu peux aussi mettre "Virement" si tu préfères
+      amount: isCrossDevise ? Math.round(aTo * 100) / 100 : updated.amount,
+      category: updated.category,
       subcategory: updated.subcategory || "",
       bank: editDestBank,
       accountType: editDestAccountType,
       date: updated.date,
       note: updated.note ? `Virement interne: ${updated.note}` : "Virement interne",
-      person: updated.person
+      person: updated.person,
+      ...(isCrossDevise ? { currencyFrom: currencyTo } : {}),
     };
 
-    // onImport accepte déjà un tableau de lignes dans ton composant (utilisé pour les imports CSV/CM)
     onImport([mirror]);
+    closeEdit();
+    return;
+  }
+
+  // ✅ V3: modification d'un transfer_out existant
+  if (becomesTransferOut && wasTransfer && editOriginal.kind === "transfer_out") {
+    // Mémorisation auto du taux si cross-devise
+    if (isCrossDevise && setExchangeRates) {
+      const implicitRate = Math.round((aTo / a) * 100000) / 100000;
+      if (currencyTo === "EUR") {
+        setExchangeRates(prev => ({ ...prev, [`${currencyFrom}_EUR`]: implicitRate }));
+      }
+    }
+
+    // Mise à jour transfer_out avec amountTo figé
+    onUpdate(editingId, {
+      ...updated,
+      kind: "transfer_out",
+      transferId: editOriginal.transferId,
+      ...(isCrossDevise ? { amountTo: Math.round(aTo * 100) / 100, currencyFrom, currencyTo } : { amountTo: undefined, currencyFrom: undefined, currencyTo: undefined }),
+    });
+
+    // Mettre à jour aussi la ligne miroir transfer_in si elle existe
+    if (editOriginal.transferId) {
+      const mirror = expenses.find(x => x.kind === "transfer_in" && x.transferId === editOriginal.transferId);
+      if (mirror) {
+        onUpdate(mirror.id, {
+          amount: isCrossDevise ? Math.round(aTo * 100) / 100 : Math.round(a * 100) / 100,
+          bank: editDestBank,
+          accountType: editDestAccountType,
+          date: updated.date,
+          note: updated.note ? `Virement interne: ${updated.note}` : "Virement interne",
+          person: updated.person,
+          category: updated.category,
+          subcategory: updated.subcategory || "",
+        });
+      }
+    }
 
     closeEdit();
     return;
@@ -1043,10 +1163,52 @@ const renderItem = useCallback((e) => {
 
           <div style={styles.summary}>
             <div>
-              <div style={styles.muted}>Dépenses : {formatEUR(totals.expenseNet)} (brut {formatEUR(totals.expenseGross)})</div>
-              <div style={styles.muted}>Revenus : {formatEUR(totals.income)}</div>
-              <div style={styles.muted}>Remboursements : {formatEUR(totals.reimbursements)}</div>
-              <div style={styles.total}>Solde : {formatEUR(totals.net)}</div>
+              {totals.singleNativeCurrency ? (() => {
+                // Devise unique non-EUR (ex: CHF) :
+                // Afficher les montants natifs CHF + estimation EUR = natif × taux_actuel
+                const cur = totals.singleNativeCurrency;
+                const currentRate = exchangeRates?.[`${cur}_EUR`];
+                const hasRate = currentRate && Number.isFinite(currentRate);
+                const estEUR = (native) => hasRate ? native * currentRate : null;
+                const fmtNative = (v) => `${v.toFixed(2)} ${cur}`;
+                const fmtEst = (v) => {
+                  const e = estEUR(v);
+                  return e != null ? <span style={{ color: "#9ca3af", fontSize: 12 }}> ≈ {formatEUR(e)} <span style={{ fontSize: 10 }}>(taux actuel)</span></span> : null;
+                };
+                return (
+                  <>
+                    <div style={styles.muted}>
+                      Dépenses : {fmtNative(totals.expenseNetNative)}
+                      {" "}(brut {fmtNative(totals.expenseGrossNative)})
+                      {fmtEst(totals.expenseNetNative)}
+                    </div>
+                    <div style={styles.muted}>
+                      Revenus : {fmtNative(totals.incomeNative)}
+                      {fmtEst(totals.incomeNative)}
+                    </div>
+                    {totals.reimbursementsNative > 0 && (
+                      <div style={styles.muted}>
+                        Remboursements : {fmtNative(totals.reimbursementsNative)}
+                        {fmtEst(totals.reimbursementsNative)}
+                      </div>
+                    )}
+                    <div style={styles.total}>
+                      Solde : {fmtNative(totals.netNative)}
+                      {fmtEst(totals.netNative)}
+                    </div>
+                  </>
+                );
+              })() : (
+                // Devises mixtes ou EUR pur : afficher en EUR (comportement standard)
+                <>
+                  <div style={styles.muted}>Dépenses : {formatEUR(totals.expenseNet)} (brut {formatEUR(totals.expenseGross)})</div>
+                  <div style={styles.muted}>Revenus : {formatEUR(totals.income)}</div>
+                  {totals.reimbursements > 0 && (
+                    <div style={styles.muted}>Remboursements : {formatEUR(totals.reimbursements)}</div>
+                  )}
+                  <div style={styles.total}>Solde : {formatEUR(totals.net)}</div>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -1160,31 +1322,62 @@ const renderItem = useCallback((e) => {
             </select>
           </label>
 
-{editKind === "transfer_out" && (
-  <>
-    <label style={styles.label}>
-      Compte destination (Banque)
-      <select value={editDestBank} onChange={(e) => setEditDestBank(e.target.value)} style={styles.input}>
-        {(banks || []).map((b) => (
-          <option key={b} value={b}>{b}</option>
-        ))}
-      </select>
-    </label>
+{editKind === "transfer_out" && (() => {
+  const cFrom = getAccountCurrency(accountCurrencies, editBank, editAccountType);
+  const cTo = getAccountCurrency(accountCurrencies, editDestBank, editDestAccountType);
+  const isCross = cFrom !== cTo;
+  const amtFrom = Number(String(editAmount).replace(",", ".")) || 0;
+  const amtTo = Number(String(editAmountTo).replace(",", ".")) || 0;
+  const implicitRate = (isCross && amtFrom > 0 && amtTo > 0)
+    ? (amtTo / amtFrom).toFixed(5)
+    : null;
 
-    <label style={styles.label}>
-      Compte destination (Type)
-      <select value={editDestAccountType} onChange={(e) => setEditDestAccountType(e.target.value)} style={styles.input}>
-        {(accountTypes || []).map((t) => (
-          <option key={t} value={t}>{t}</option>
-        ))}
-      </select>
-    </label>
+  return (
+    <>
+      <label style={styles.label}>
+        Compte destination (Banque)
+        <select value={editDestBank} onChange={(e) => setEditDestBank(e.target.value)} style={styles.input}>
+          {(banks || []).map((b) => (
+            <option key={b} value={b}>{b}</option>
+          ))}
+        </select>
+      </label>
 
-    <div style={{ fontSize: 12, opacity: 0.8, marginTop: -6 }}>
-      L’opération miroir (entrée) sera créée automatiquement sur le compte destination.
-    </div>
-  </>
-)}
+      <label style={styles.label}>
+        Compte destination (Type)
+        <select value={editDestAccountType} onChange={(e) => setEditDestAccountType(e.target.value)} style={styles.input}>
+          {(accountTypes || []).map((t) => (
+            <option key={t} value={t}>{t}</option>
+          ))}
+        </select>
+      </label>
+
+      {isCross && (
+        <label style={styles.label}>
+          Montant crédité ({cTo})
+          <input
+            inputMode="decimal"
+            value={editAmountTo}
+            onChange={(e) => setEditAmountTo(e.target.value)}
+            placeholder={`ex: 950.00 ${cTo}`}
+            style={styles.input}
+          />
+          {implicitRate && (
+            <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>
+              Taux implicite : 1 {cFrom} = {implicitRate} {cTo}
+            </div>
+          )}
+        </label>
+      )}
+
+      <div style={{ fontSize: 12, opacity: 0.8, marginTop: -6 }}>
+        {editOriginal && (editOriginal.kind === "transfer_out")
+          ? "La ligne miroir (transfer_in) sera également mise à jour."
+          : "L'opération miroir (entrée) sera créée automatiquement sur le compte destination."}
+      </div>
+    </>
+  );
+})()}
 
 
 
@@ -1539,53 +1732,112 @@ const renderItem = useCallback((e) => {
       )}
 
       {/* ── Modal remboursement rapide ── */}
-      {reimbModalExpense && (
-        <div style={styles.modalBackdrop} onClick={closeReimbModal}>
-          <div style={styles.modal} onClick={ev => ev.stopPropagation()}>
+      {reimbModalExpense && (() => {
+        // Remboursements déjà enregistrés pour cette dépense
+        const existingReimbs = expenses.filter(
+          e => e.kind === "reimbursement" && e.linkedExpenseId === reimbModalExpense.id
+        ).sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")));
+        const totalReimb = existingReimbs.reduce((s, e) => s + Number(e.amount || 0), 0);
+        const remaining = Math.max(0, Number(reimbModalExpense.amount || 0) - totalReimb);
+        const isFullyReimbursed = remaining <= 0;
 
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-              <h3 style={{ margin: 0, fontSize: 16 }}>↩ Rembourser cette dépense</h3>
-              <button onClick={closeReimbModal} style={styles.btnX}>✕</button>
-            </div>
+        return (
+          <div style={styles.modalBackdrop} onClick={closeReimbModal}>
+            <div style={styles.modal} onClick={ev => ev.stopPropagation()}>
 
-            {/* Rappel de la dépense d'origine */}
-            <div style={{ background: "#f9fafb", borderRadius: 10, padding: "8px 12px", marginBottom: 14, fontSize: 13, color: "#374151" }}>
-              <strong>{reimbModalExpense.category}</strong>
-              {reimbModalExpense.note ? ` — ${reimbModalExpense.note}` : ""}
-              <span style={{ float: "right", fontWeight: 700 }}>
-                {formatEUR(reimbModalExpense.amount)}
-              </span>
-            </div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                <h3 style={{ margin: 0, fontSize: 16 }}>↩ Rembourser cette dépense</h3>
+                <button onClick={closeReimbModal} style={styles.btnX}>✕</button>
+              </div>
 
-            <div style={{ display: "grid", gap: 12 }}>
-              <label style={styles.label}>
-                Montant remboursé (€)
-                <input
-                  inputMode="decimal"
-                  value={reimbAmount}
-                  onChange={e => setReimbAmount(e.target.value)}
-                  style={styles.input}
-                />
-              </label>
+              {/* Rappel de la dépense d'origine */}
+              <div style={{ background: "#f9fafb", borderRadius: 10, padding: "8px 12px", marginBottom: 14, fontSize: 13, color: "#374151" }}>
+                <strong>{reimbModalExpense.category}</strong>
+                {reimbModalExpense.note ? ` — ${reimbModalExpense.note}` : ""}
+                <span style={{ float: "right", fontWeight: 700 }}>
+                  {formatEUR(reimbModalExpense.amount)}
+                </span>
+              </div>
 
-              <label style={styles.label}>
-                Date du remboursement
-                <input
-                  type="date"
-                  value={reimbDate}
-                  onChange={e => setReimbDate(e.target.value)}
-                  style={styles.input}
-                />
-              </label>
-            </div>
+              {/* Liste des remboursements déjà enregistrés */}
+              {existingReimbs.length > 0 && (
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#6b7280", marginBottom: 6 }}>
+                    Remboursements enregistrés :
+                  </div>
+                  {existingReimbs.map(r => (
+                    <div key={r.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "5px 0", borderBottom: "1px solid #f3f4f6" }}>
+                      <span style={{ color: "#374151" }}>
+                        {r.date}{r.person ? <strong> • {r.person}</strong> : ""}
+                      </span>
+                      <span style={{ fontWeight: 700, color: "#16a34a" }}>+{formatEUR(r.amount)}</span>
+                    </div>
+                  ))}
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginTop: 8, fontWeight: 700, paddingTop: 6, borderTop: "2px solid #e5e7eb" }}>
+                    <span>Reste à rembourser :</span>
+                    <span style={{ color: isFullyReimbursed ? "#16a34a" : "#dc2626" }}>
+                      {isFullyReimbursed ? "✅ Entièrement remboursé" : formatEUR(remaining)}
+                    </span>
+                  </div>
+                </div>
+              )}
 
-            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 16 }}>
-              <button onClick={closeReimbModal} style={styles.btnSecondary}>Annuler</button>
-              <button onClick={submitReimb} style={styles.btnPrimary}>✅ Créer le remboursement</button>
+              {/* Formulaire de saisie — masqué si entièrement remboursé */}
+              {!isFullyReimbursed && (
+                <div style={{ display: "grid", gap: 12 }}>
+                  <label style={styles.label}>
+                    Personne qui rembourse
+                    <input
+                      list="reimb-people-list"
+                      value={reimbPerson}
+                      onChange={e => setReimbPerson(e.target.value)}
+                      placeholder="Thomas, Laurie…"
+                      style={styles.input}
+                    />
+                    <datalist id="reimb-people-list">
+                      {(Array.isArray(people) ? people : []).map(p => (
+                        <option key={p} value={p} />
+                      ))}
+                    </datalist>
+                  </label>
+
+                  <label style={styles.label}>
+                    Montant remboursé (€)
+                    <input
+                      inputMode="decimal"
+                      value={reimbAmount}
+                      onChange={e => setReimbAmount(e.target.value)}
+                      placeholder={`ex : ${formatEUR(remaining)}`}
+                      style={styles.input}
+                    />
+                  </label>
+
+                  <label style={styles.label}>
+                    Date du remboursement
+                    <input
+                      type="date"
+                      value={reimbDate}
+                      onChange={e => setReimbDate(e.target.value)}
+                      style={styles.input}
+                    />
+                  </label>
+                </div>
+              )}
+
+              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 16 }}>
+                <button onClick={closeReimbModal} style={styles.btnSecondary}>
+                  {isFullyReimbursed ? "Fermer" : "Annuler"}
+                </button>
+                {!isFullyReimbursed && (
+                  <button onClick={submitReimb} style={styles.btnPrimary}>
+                    ✅ Ajouter ce remboursement
+                  </button>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ── Snackbar undo ── */}
       {snackbar && (

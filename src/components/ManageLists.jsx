@@ -98,12 +98,20 @@ function ListEditor({ title, items, setItems, usedValues = [] }) {
   );
 }
 
+const SUPPORTED_CURRENCIES = ["EUR", "CHF", "USD", "GBP"];
+
 export default function ManageLists({
   banks,
   setBanks,
   accountTypes,
   setAccountTypes,
   expenses,
+  accountCurrencies,
+  setAccountCurrencies,
+  exchangeRates,
+  setExchangeRates,
+  accountContribRates,
+  setAccountContribRates,
   onConnectDrive,
   onBackupNow,
   onRestoreNow,
@@ -113,6 +121,50 @@ export default function ManageLists({
 
   const usedBanks = (expenses || []).map((e) => e.bank);
   const usedTypes = (expenses || []).map((e) => e.accountType);
+
+  // Combinaisons banque × type de compte présentes dans l'historique
+  const usedCombinations = useMemo(() => {
+    const set = new Set();
+    for (const e of expenses || []) {
+      const b = String(e.bank || "").trim();
+      const t = String(e.accountType || "").trim();
+      if (b && t) set.add(`${b}||${t}`);
+    }
+    // Ajouter aussi les combinaisons déjà configurées
+    for (const key of Object.keys(accountCurrencies || {})) set.add(key);
+    for (const key of Object.keys(accountContribRates || {})) set.add(key);
+    return Array.from(set).sort();
+  }, [expenses, accountCurrencies, accountContribRates]);
+
+  function setCurrencyForAccount(bank, accountType, currency) {
+    const key = `${bank}||${accountType}`;
+    setAccountCurrencies(prev => ({ ...prev, [key]: currency }));
+  }
+
+  function setContribRateForAccount(bank, accountType, pct) {
+    const n = Number(String(pct).replace(",", "."));
+    if (!Number.isFinite(n) || n <= 0 || n > 100) return;
+    const key = `${bank}||${accountType}`;
+    const decimal = Math.round((n / 100) * 10000) / 10000;
+    setAccountContribRates(prev => ({ ...prev, [key]: decimal }));
+  }
+
+  function updateRate(rateKey, value) {
+    const num = parseFloat(String(value).replace(",", "."));
+    if (!Number.isFinite(num) || num <= 0) return;
+    setExchangeRates(prev => ({ ...prev, [rateKey]: Math.round(num * 10000) / 10000 }));
+  }
+
+  function addManualRate() {
+    const from = prompt("Devise source (ex: CHF, USD):", "CHF");
+    if (!from) return;
+    const to = "EUR";
+    const rateStr = prompt(`Taux : 1 ${from.trim().toUpperCase()} = ? EUR`, "0.95");
+    const num = parseFloat(String(rateStr || "").replace(",", "."));
+    if (!Number.isFinite(num) || num <= 0) return alert("Taux invalide.");
+    const key = `${from.trim().toUpperCase()}_EUR`;
+    setExchangeRates(prev => ({ ...prev, [key]: Math.round(num * 10000) / 10000 }));
+  }
 
   const syncLabel = syncStatus === "saving"
     ? { icon: "🔄", text: "Synchronisation en cours…", color: "#6b7280" }
@@ -128,6 +180,111 @@ export default function ManageLists({
     <div style={{ display: "grid", gap: 12 }}>
       <ListEditor title="Banques" items={banks} setItems={setBanks} usedValues={usedBanks} />
       <ListEditor title="Types de compte" items={accountTypes} setItems={setAccountTypes} usedValues={usedTypes} />
+
+      {/* Devises par compte */}
+      <div style={styles.card}>
+        <div style={styles.h2}>💱 Devises par compte</div>
+        <div style={{ ...styles.muted, marginBottom: 10 }}>
+          Par défaut tous les comptes sont en EUR. Modifie ici si un compte est en CHF ou autre devise.
+        </div>
+        {usedCombinations.length === 0 ? (
+          <div style={styles.muted}>Aucune combinaison banque/type détectée. Ajoute des opérations d'abord.</div>
+        ) : (
+          <div style={{ display: "grid", gap: 8 }}>
+            {usedCombinations.map((key) => {
+              const [bank, accountType] = key.split("||");
+              const current = (accountCurrencies || {})[key] || "EUR";
+              return (
+                <div key={key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                  <span style={{ fontSize: 13, fontWeight: 600 }}>{bank} — {accountType}</span>
+                  <select
+                    value={current}
+                    onChange={(e) => setCurrencyForAccount(bank, accountType, e.target.value)}
+                    style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #d4c9ae", background: "#fdfaf5", fontWeight: 700 }}
+                  >
+                    {SUPPORTED_CURRENCIES.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Taux de contribution par compte */}
+      <div style={styles.card}>
+        <div style={styles.h2}>👥 Taux de contribution par compte</div>
+        <div style={{ ...styles.muted, marginBottom: 10 }}>
+          Définis ta part réelle des dépenses sur chaque compte partagé.<br />
+          100% = dépenses intégrales. 50% = compte partagé 50/50.
+          Ce taux s'applique dans les statistiques via le toggle "Ma part".
+        </div>
+        {usedCombinations.length === 0 ? (
+          <div style={styles.muted}>Aucune combinaison banque/type détectée. Ajoute des opérations d'abord.</div>
+        ) : (
+          <div style={{ display: "grid", gap: 8 }}>
+            {usedCombinations.map((key) => {
+              const [bank, accountType] = key.split("||");
+              const storedRate = (accountContribRates || {})[key];
+              const displayPct = storedRate !== undefined
+                ? Math.round(Number(storedRate) * 100)
+                : 100;
+              return (
+                <div key={key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                  <span style={{ fontSize: 13, fontWeight: 600 }}>{bank} — {accountType}</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      min="1"
+                      max="100"
+                      value={displayPct}
+                      onChange={(e) => setContribRateForAccount(bank, accountType, e.target.value)}
+                      style={{ width: 70, padding: "8px 10px", borderRadius: 10, border: "1px solid #d4c9ae", background: "#fdfaf5", fontWeight: 700, textAlign: "right" }}
+                    />
+                    <span style={{ fontSize: 13, fontWeight: 600 }}>%</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Taux de change */}
+      <div style={styles.card}>
+        <div style={styles.h2}>📈 Taux de change (vers EUR)</div>
+        <div style={{ ...styles.muted, marginBottom: 10 }}>
+          Les taux sont mis à jour automatiquement lors de chaque virement cross-devise.
+          Tu peux aussi les saisir manuellement.
+        </div>
+        {Object.keys(exchangeRates || {}).length === 0 ? (
+          <div style={styles.muted}>Aucun taux enregistré. Fais un virement CHF→EUR pour le mémoriser automatiquement.</div>
+        ) : (
+          <div style={{ display: "grid", gap: 8 }}>
+            {Object.entries(exchangeRates || {}).map(([key, rate]) => {
+              const [from, to] = key.split("_");
+              return (
+                <div key={key} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, minWidth: 60 }}>1 {from} =</span>
+                  <input
+                    inputMode="decimal"
+                    value={rate}
+                    onChange={(e) => updateRate(key, e.target.value)}
+                    style={{ width: 90, padding: "8px 10px", borderRadius: 10, border: "1px solid #d4c9ae", background: "#fdfaf5", fontWeight: 700 }}
+                  />
+                  <span style={{ fontSize: 13, fontWeight: 600 }}>{to}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <button style={{ ...styles.btnLight, marginTop: 10 }} onClick={addManualRate} type="button">
+          ➕ Ajouter un taux manuellement
+        </button>
+      </div>
 
       <div style={styles.card}>
         <div style={styles.h2}>Sauvegarde Google Drive</div>

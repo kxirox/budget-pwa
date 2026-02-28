@@ -78,7 +78,37 @@ export default function Debts({ expenses, people, setPeople }) {
   const totalReceive = toReceive.reduce((s, r) => s + r.balance, 0);
   const totalGive = toGive.reduce((s, r) => s + r.balance, 0);
 
+  const [expandedPerson, setExpandedPerson] = useState(null);
   const [newPerson, setNewPerson] = useState("");
+
+  // Dépenses encore dues (solde restant > 0) par personne, pour l'accordéon
+  const expensesByPerson = useMemo(() => {
+    const map = new Map();
+    const list = Array.isArray(expenses) ? expenses : [];
+
+    const reimbByExpense = new Map();
+    for (const e of list) {
+      if (e?.kind !== "reimbursement" || !e.linkedExpenseId) continue;
+      reimbByExpense.set(e.linkedExpenseId, (reimbByExpense.get(e.linkedExpenseId) || 0) + Number(e.amount || 0));
+    }
+
+    for (const e of list) {
+      if (e?.kind !== "expense") continue;
+      const person = normalizeName(e.person);
+      if (!person) continue;
+      const reimb = reimbByExpense.get(e.id) || 0;
+      const remaining = Number(e.amount || 0) - reimb;
+      if (remaining <= 0.005) continue;
+      if (!map.has(person)) map.set(person, []);
+      map.get(person).push({ ...e, _remaining: remaining });
+    }
+
+    for (const [, arr] of map) {
+      arr.sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
+    }
+
+    return map;
+  }, [expenses]);
 
   function addPerson() {
     const name = normalizeName(newPerson);
@@ -126,12 +156,74 @@ export default function Debts({ expenses, people, setPeople }) {
           <div style={{ color: "#6b7280" }}>Ajoute une personne sur une dépense ou un remboursement pour voir les balances.</div>
         ) : (
           <div style={{ display: "grid", gap: 8 }}>
-            {rows.map(r => (
-              <div key={r.person} style={styles.personRow}>
-                <div style={{ fontWeight: 800 }}>{r.person}</div>
-                <div style={{ fontWeight: 800 }}>{formatEUR(r.balance)}</div>
-              </div>
-            ))}
+            {rows.map(r => {
+              const isExpanded = expandedPerson === r.person;
+              const relatedExpenses = expensesByPerson.get(r.person) || [];
+              return (
+                <div key={r.person}>
+                  {/* Ligne principale — cliquable */}
+                  <div
+                    style={{
+                      ...styles.personRow,
+                      cursor: "pointer",
+                      userSelect: "none",
+                      background: isExpanded ? "#f0fdf4" : "#ffffff",
+                      borderBottomLeftRadius: isExpanded ? 0 : 14,
+                      borderBottomRightRadius: isExpanded ? 0 : 14,
+                    }}
+                    onClick={() => setExpandedPerson(isExpanded ? null : r.person)}
+                  >
+                    <div style={{ fontWeight: 800 }}>{r.person}</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <div style={{ fontWeight: 800 }}>{formatEUR(r.balance)}</div>
+                      <span style={{ fontSize: 12, color: "#9ca3af" }}>{isExpanded ? "▲" : "▼"}</span>
+                    </div>
+                  </div>
+
+                  {/* Panneau accordéon */}
+                  {isExpanded && (
+                    <div style={{
+                      border: "1px solid #e5e7eb",
+                      borderTop: "none",
+                      borderBottomLeftRadius: 14,
+                      borderBottomRightRadius: 14,
+                      background: "#f9fafb",
+                      padding: "8px 12px",
+                    }}>
+                      {relatedExpenses.length === 0 ? (
+                        <div style={{ color: "#6b7280", fontSize: 13, padding: "6px 0" }}>
+                          Aucune dépense en attente de remboursement.
+                        </div>
+                      ) : (
+                        relatedExpenses.map(e => (
+                          <div key={e.id} style={{
+                            display: "flex", justifyContent: "space-between", alignItems: "flex-start",
+                            padding: "7px 0", borderBottom: "1px solid #e5e7eb", gap: 10, fontSize: 13
+                          }}>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontWeight: 700 }}>
+                                {e.category}{e.subcategory ? ` › ${e.subcategory}` : ""}
+                              </div>
+                              <div style={{ color: "#6b7280", fontSize: 12 }}>
+                                {e.date}{e.note ? ` • ${e.note}` : ""}
+                              </div>
+                            </div>
+                            <div style={{ textAlign: "right", flexShrink: 0 }}>
+                              <div style={{ fontWeight: 700 }}>{formatEUR(Number(e.amount || 0))}</div>
+                              {e._remaining < Number(e.amount || 0) && (
+                                <div style={{ color: "#16a34a", fontSize: 11 }}>
+                                  reste {formatEUR(e._remaining)}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

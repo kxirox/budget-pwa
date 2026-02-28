@@ -2,6 +2,7 @@ import React, { useMemo, useState, useEffect, useRef } from "react";
 import { PieChart, Pie, Tooltip, ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Cell, BarChart, Bar, Legend } from "recharts";
 import { currentMonthKey, formatEUR, monthLabelFR } from "../utils";
 import { saveFilters, loadFilters } from "../filterStorage";
+import { getAccountCurrency, toEUR, getContribRate } from "../storage";
 
 // ── Tooltip custom pour l'histogramme 12 mois ──
 // Sur mobile : panneau fixe centré en bas d'écran, jamais coupé
@@ -100,6 +101,10 @@ export default function Stats({
   performance = null,
   perfScope = "7d",
   setPerfScope = () => {},
+  accountCurrencies = {},
+  exchangeRates = {},
+  accountContribRates = {},
+  setTab = () => {},
 }) {
   // Filtres par défaut
   const defaultFilters = {
@@ -131,6 +136,9 @@ export default function Stats({
   // Mode B : "Mes dépenses réelles" (pondération par coefficient mensuel)
   const [personalMode, setPersonalMode] = useState(savedFilters.personalMode ?? false);
 
+  // Mode "Ma part" : applique les taux de contribution fixes par compte
+  const [myShareMode, setMyShareMode] = useState(savedFilters.myShareMode ?? false);
+
   // Accordéon tableau contributions
   const [showAllContrib, setShowAllContrib] = useState(false);
 
@@ -145,10 +153,11 @@ export default function Stats({
       selectedBank,
       selectedAccountType,
       subcatCategory,
-      personalMode
+      personalMode,
+      myShareMode
     };
     saveFilters("stats", currentFilters);
-  }, [mode, month, from, to, scope, selectedBank, selectedAccountType, subcatCategory, personalMode]);
+  }, [mode, month, from, to, scope, selectedBank, selectedAccountType, subcatCategory, personalMode, myShareMode]);
 
   // Raccourci : 30 derniers jours glissants
   const applyLast30Days = () => {
@@ -172,6 +181,46 @@ export default function Stats({
     setSelectedAccountType("ALL");
     setSubcatCategory((Array.isArray(categories) && categories[0]) ? categories[0] : "Autres");
   };
+
+  // Clic sur une tranche du camembert → naviguer vers l'historique filtré
+  function handlePieClick(entry) {
+    if (!entry || !entry.name) return;
+    const historyFilters = {
+      mode,
+      month,
+      from,
+      to,
+      cat: entry.name,
+      bankFilter: selectedBank === "ALL" ? "Toutes" : selectedBank,
+      accountTypeFilter: selectedAccountType === "ALL" ? "Toutes" : selectedAccountType,
+      selectedTypes: ["expense"],
+      q: "",
+      amountMin: "",
+      amountMax: "",
+    };
+    saveFilters("history", historyFilters);
+    setTab("list");
+  }
+
+  // Clic sur camembert moyenne → historique sans filtre de période
+  function handleAvgPieClick(entry) {
+    if (!entry || !entry.name) return;
+    const historyFilters = {
+      mode: "month",
+      month: "ALL",
+      from: "",
+      to: "",
+      cat: entry.name,
+      bankFilter: selectedBank === "ALL" ? "Toutes" : selectedBank,
+      accountTypeFilter: selectedAccountType === "ALL" ? "Toutes" : selectedAccountType,
+      selectedTypes: ["expense"],
+      q: "",
+      amountMin: "",
+      amountMax: "",
+    };
+    saveFilters("history", historyFilters);
+    setTab("list");
+  }
 
 
 
@@ -385,9 +434,19 @@ useEffect(() => {
 
       const g = getGroupKey(e);
 
+      // On utilise toujours la devise du COMPTE (accountCurrencies), pas e.currency
+      // qui est la devise de la transaction (peut être EUR sur un compte CHF)
+      const eCurrency = getAccountCurrency(accountCurrencies, e.bank, e.accountType);
+      // Pour transfer_out cross-devise : utiliser amountTo figé (pas de reconversion via taux global)
+      let eAmountEUR;
+      if (e.kind === "transfer_out" && eCurrency !== "EUR" && e.amountTo != null) {
+        eAmountEUR = Number(e.amountTo);
+      } else {
+        eAmountEUR = toEUR(Number(e.amount || 0), eCurrency, exchangeRates);
+      }
       const signed = (e.kind === "income" || e.kind === "reimbursement" || e.kind === "transfer_in")
-        ? Number(e.amount || 0)
-        : -Number(e.amount || 0);
+        ? eAmountEUR
+        : -eAmountEUR;
 
       if (!byDay.has(d)) byDay.set(d, new Map());
       const m = byDay.get(d);
@@ -415,7 +474,7 @@ useEffect(() => {
     }
 
     return { rows: out, keys: groupList };
-  }, [statsFiltered, scope]);
+  }, [statsFiltered, scope, accountCurrencies, exchangeRates]);
   // fin balance timeline par groupe
 
   // ── Histogramme 12 mois par catégorie ──────────────────────────────────────
@@ -453,11 +512,14 @@ useEffect(() => {
       const gross = Number(e.amount || 0);
       const reimb = reimburseByExpenseId.get(e.id) || 0;
       const net = Math.max(0, gross - reimb);
-      row[cat] = Math.round(((row[cat] || 0) + net) * 100) / 100;
+      // Appliquer le taux de contribution si mode "Ma part" actif
+      const contribRate = myShareMode ? getContribRate(accountContribRates, e.bank, e.accountType) : 1.0;
+      const netWeighted = net * contribRate;
+      row[cat] = Math.round(((row[cat] || 0) + netWeighted) * 100) / 100;
     }
 
     return { rows, cats };
-  }, [statsFiltered, reimburseByExpenseId]);
+  }, [statsFiltered, reimburseByExpenseId, myShareMode, accountContribRates]);
 
 
 
@@ -532,9 +594,19 @@ const expenseData = useMemo(() => {
     const reimb = reimburseByExpenseId.get(e.id) || 0;
     const net = Math.max(0, gross - reimb);
 
-    // Mode B : pondérer les dépenses du compte commun par le coefficient mensuel
+    // Mode "Ma part" : appliquer le taux de contribution fixe par compte
     let weighted = net;
-    if (personalMode && e.accountType === "Compte commun") {
+    if (myShareMode) {
+      const contribRate = getContribRate(accountContribRates, e.bank, e.accountType);
+      weighted = net * contribRate;
+      // Si pas de taux fixe configuré (= 1.0) et personalMode actif → coefficient mensuel dynamique
+      if (contribRate === 1.0 && personalMode && e.accountType === "Compte commun") {
+        const m = String(e.date || "").slice(0, 7);
+        const coeff = monthlyCoefficients[m] ?? 0.5;
+        weighted = net * coeff;
+      }
+    } else if (personalMode && e.accountType === "Compte commun") {
+      // personalMode sans myShareMode : comportement existant inchangé
       const m = String(e.date || "").slice(0, 7);
       const coeff = monthlyCoefficients[m] ?? 0.5;
       weighted = net * coeff;
@@ -547,7 +619,57 @@ const expenseData = useMemo(() => {
     .map(([name, value]) => ({ name, value: Math.round(value * 100) / 100 }))
     .filter(d => d.value > 0)
     .sort((a, b) => b.value - a.value);
-}, [statsFiltered, safeCategories, reimburseByExpenseId, personalMode, monthlyCoefficients]);
+}, [statsFiltered, safeCategories, reimburseByExpenseId, personalMode, monthlyCoefficients, myShareMode, accountContribRates]);
+
+// ── Moyenne mensuelle par catégorie sur 12 mois glissants ──
+const avgExpenseData = useMemo(() => {
+  const now = new Date();
+  const validMonths = new Set();
+  for (let i = 11; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    validMonths.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+  }
+
+  const map = new Map(safeCategories.map(c => [c, 0]));
+  const monthsWithData = new Set();
+
+  for (const e of safeExpenses) {
+    if (e.kind !== "expense") continue;
+    const mk = String(e.date || "").slice(0, 7);
+    if (!validMonths.has(mk)) continue;
+    if (selectedBank !== "ALL" && String(e.bank || "") !== selectedBank) continue;
+    if (selectedAccountType !== "ALL" && String(e.accountType || "") !== selectedAccountType) continue;
+
+    const cat = String(e.category || "Autres").trim() || "Autres";
+    const gross = Number(e.amount || 0);
+    const reimb = reimburseByExpenseId.get(e.id) || 0;
+    const net = Math.max(0, gross - reimb);
+
+    let weighted = net;
+    if (myShareMode) {
+      const contribRate = getContribRate(accountContribRates, e.bank, e.accountType);
+      weighted = net * contribRate;
+      if (contribRate === 1.0 && personalMode && e.accountType === "Compte commun") {
+        const coeff = monthlyCoefficients[mk] ?? 0.5;
+        weighted = net * coeff;
+      }
+    } else if (personalMode && e.accountType === "Compte commun") {
+      const coeff = monthlyCoefficients[mk] ?? 0.5;
+      weighted = net * coeff;
+    }
+
+    map.set(cat, (map.get(cat) || 0) + weighted);
+    monthsWithData.add(mk);
+  }
+
+  const nbMonths = Math.max(1, monthsWithData.size);
+
+  return Array.from(map.entries())
+    .map(([name, total]) => ({ name, value: Math.round((total / nbMonths) * 100) / 100 }))
+    .filter(d => d.value > 0)
+    .sort((a, b) => b.value - a.value);
+}, [safeExpenses, safeCategories, reimburseByExpenseId, selectedBank, selectedAccountType,
+    personalMode, monthlyCoefficients, myShareMode, accountContribRates]);
 
 const incomeData = useMemo(() => {
   const map = new Map(safeCategories.map(c => [c, 0]));
@@ -613,9 +735,18 @@ const subcatData = useMemo(() => {
     const byType = new Map();
 
     for (const e of statsFilteredDateOnly) {
-      const amount = Number(e.amount || 0);
+      // On utilise toujours la devise du COMPTE (accountCurrencies), pas e.currency
+      // qui est la devise de la transaction (peut être EUR sur un compte CHF)
+      const currency = getAccountCurrency(accountCurrencies, e.bank, e.accountType);
+      // Pour transfer_out cross-devise : utiliser amountTo figé (pas de reconversion via taux global)
+      let amountEUR;
+      if (e.kind === "transfer_out" && currency !== "EUR" && e.amountTo != null) {
+        amountEUR = Number(e.amountTo);
+      } else {
+        amountEUR = toEUR(Number(e.amount || 0), currency, exchangeRates);
+      }
       const signed = (e.kind === "income" || e.kind === "reimbursement" || e.kind === "transfer_in")
-        ? amount : -amount;
+        ? amountEUR : -amountEUR;
 
       const bankKey = String(e.bank || "Physique").trim() || "Physique";
       const typeKey = String(e.accountType || "Compte courant").trim() || "Compte courant";
@@ -645,7 +776,7 @@ const subcatData = useMemo(() => {
         .sort((a, b) => b.absValue - a.absValue);
 
     return { soldeByBank: toSlices(byBank), soldeByType: toSlices(byType) };
-  }, [statsFilteredDateOnly]);
+  }, [statsFilteredDateOnly, accountCurrencies, exchangeRates]);
 
 
   return (
@@ -855,6 +986,24 @@ const subcatData = useMemo(() => {
               </button>
             </div>
 
+            {/* Toggle "Ma part" (taux de contribution par compte) */}
+            <button
+              onClick={() => setMyShareMode(v => !v)}
+              style={{
+                padding: "6px 12px",
+                borderRadius: 10,
+                border: `1px solid ${myShareMode ? "#7c3aed" : "#d4c9ae"}`,
+                background: myShareMode ? "#7c3aed" : "#fdfaf5",
+                color: myShareMode ? "white" : "#374151",
+                fontSize: 12,
+                cursor: "pointer",
+                fontWeight: 600
+              }}
+              title="Applique les taux de contribution définis dans Gérer les listes"
+            >
+              👥 Ma part
+            </button>
+
             <button
               onClick={resetAllFilters}
               style={{
@@ -875,12 +1024,17 @@ const subcatData = useMemo(() => {
 
 
           <div style={styles.big}>
-            {personalMode ? "Mes dépenses réelles (filtre)" : "Dépenses net (filtre)"}: <span style={{ fontWeight: 900 }}>{formatEUR(expenseTotal)}</span>
+            {myShareMode ? "Ma part (filtre)" : personalMode ? "Mes dépenses réelles (filtre)" : "Dépenses net (filtre)"}: <span style={{ fontWeight: 900 }}>{formatEUR(expenseTotal)}</span>
           </div>
-          {personalMode && mode === "month" && month && month !== "ALL" && (
+          {personalMode && !myShareMode && mode === "month" && month && month !== "ALL" && (
             <div style={{ color: "#6b7280", fontSize: 12 }}>
               Coefficient {month} : {Math.round((monthlyCoefficients[month] ?? 0.5) * 100)}%
               {!monthlyCoefficients[month] && " (par défaut, aucun revenu contributeur ce mois)"}
+            </div>
+          )}
+          {myShareMode && (
+            <div style={{ color: "#7c3aed", fontSize: 12, fontWeight: 600 }}>
+              Les montants sont pondérés par tes taux de contribution (Gérer les listes → % Taux de contribution)
             </div>
           )}
           <div style={styles.big}>
@@ -1128,9 +1282,15 @@ const subcatData = useMemo(() => {
                     label={!isMobile}
                     labelLine={!isMobile}
                     isAnimationActive={!isMobile}
+                    onClick={(data) => handlePieClick(data)}
+                    style={{ cursor: "pointer" }}
                   >
                     {expenseData.map((entry, idx) => (
-                      <Cell key={entry.name} fill={colorForCategory(entry.name, idx)} />
+                      <Cell
+                        key={entry.name}
+                        fill={colorForCategory(entry.name, idx)}
+                        style={{ cursor: "pointer" }}
+                      />
                     ))}
                   </Pie>
 
@@ -1140,7 +1300,58 @@ const subcatData = useMemo(() => {
               </ResponsiveContainer>
             </div>
 
+            <div style={{ color: "#9ca3af", fontSize: 11, textAlign: "center", marginTop: 4, marginBottom: 2 }}>
+              Cliquer sur une tranche pour voir le détail dans l'historique
+            </div>
+
             <LegendList items={expenseData} />
+          </div>
+        )}
+      </div>
+
+      {/* ── Camembert moyenne mensuelle 12 mois glissants ── */}
+      <div style={styles.card}>
+        <h3 style={{ margin: 0, marginBottom: 4 }}>Moyenne mensuelle (12 mois glissants)</h3>
+        <div style={{ color: "#9ca3af", fontSize: 12, marginBottom: 10 }}>
+          Indépendant du filtre de période · Filtres banque/compte appliqués
+        </div>
+
+        {avgExpenseData.length === 0 ? (
+          <div style={{ color: "#6b7280", textAlign: "center", padding: 24 }}>
+            Pas de dépenses sur les 12 derniers mois.
+          </div>
+        ) : (
+          <div style={{ width: "100%", minWidth: 0, overflow: "hidden" }}>
+            <div style={{ width: "100%", minWidth: 0, overflow: "hidden", height: 320 }}>
+              <ResponsiveContainer width="99%" height="100%">
+                <PieChart>
+                  <Pie
+                    dataKey="value"
+                    data={avgExpenseData}
+                    label={!isMobile}
+                    labelLine={!isMobile}
+                    isAnimationActive={!isMobile}
+                    onClick={(data) => handleAvgPieClick(data)}
+                    style={{ cursor: "pointer" }}
+                  >
+                    {avgExpenseData.map((entry, idx) => (
+                      <Cell
+                        key={entry.name}
+                        fill={colorForCategory(entry.name, idx)}
+                        style={{ cursor: "pointer" }}
+                      />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(v) => [formatEUR(v) + "/mois", ""]} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div style={{ color: "#9ca3af", fontSize: 11, textAlign: "center", marginTop: 4, marginBottom: 2 }}>
+              Cliquer sur une tranche pour voir le détail dans l'historique (toutes périodes)
+            </div>
+
+            <LegendList items={avgExpenseData} />
           </div>
         )}
       </div>

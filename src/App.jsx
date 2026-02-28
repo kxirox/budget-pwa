@@ -23,7 +23,15 @@ import {
   loadForecastItems,
   saveForecastItems,
   loadForecastSettings,
-  saveForecastSettings
+  saveForecastSettings,
+  loadAccountCurrencies,
+  saveAccountCurrencies,
+  loadExchangeRates,
+  saveExchangeRates,
+  getAccountCurrency,
+  toEUR,
+  loadAccountContribRates,
+  saveAccountContribRates,
 } from "./storage.js";
 import { loadRecurring, saveRecurring } from "./storage.js";
 import { loadSubcategories, saveSubcategories } from "./storage.js";
@@ -65,26 +73,49 @@ function addYears(date, years) {
   return d;
 }
 
-// Solde total "rejoué" jusqu'à une date (global tous comptes)
-// - expense => -amount
-// - income / reimbursement => +amount
-// - transfer => 0 (ne doit pas impacter le total global)
-function totalBalanceAt(expenses, dateLimit) {
+// Solde total "rejoué" jusqu'à une date (global tous comptes), converti en EUR
+// - expense => -amountEUR
+// - income / reimbursement => +amountEUR
+// - transfer_in / transfer_out => inclus (s'annulent en intra-EUR, delta réel en cross-devise)
+// accountCurrencies et exchangeRates sont optionnels (backward compat EUR seul)
+function totalBalanceAt(expenses, dateLimit, accountCurrencies = {}, exchangeRates = {}) {
   const limit = startOfDayTs(dateLimit);
 
   return expenses.reduce((sum, e) => {
     const t = startOfDayTs(e.date);
     if (t > limit) return sum;
 
-    const amount = Number(e.amount || 0);
     const kind = e.kind;
+    if (kind === "transfer") return sum; // ancien kind "transfer" non splitté → neutre
 
-    if (kind === "transfer") return sum;
+    // Pour les virements cross-devise, on utilise le montant figé au moment de la saisie
+    // plutôt que de reconvertir via le taux global (qui peut avoir changé depuis).
+    // transfer_out : utilise amountTo (montant EUR crédité, figé) si cross-devise
+    // transfer_in  : son amount EST déjà en devise destination (figé), pas besoin de convertir
+    if (kind === "transfer_out") {
+      // Devise du COMPTE source (pas e.currency qui est la devise de la transaction)
+      const currencyOut = getAccountCurrency(accountCurrencies, e.bank, e.accountType);
+      if (currencyOut !== "EUR" && e.amountTo != null) {
+        // Montant EUR figé au moment du virement
+        return sum - Number(e.amountTo);
+      }
+      // Intra-EUR ou ancien virement sans amountTo → convertir normalement
+      return sum - toEUR(Number(e.amount || 0), currencyOut, exchangeRates);
+    }
+    if (kind === "transfer_in") {
+      // Devise du COMPTE destination
+      const currencyIn = getAccountCurrency(accountCurrencies, e.bank, e.accountType);
+      // amount est déjà en devise destination (figé à la saisie)
+      return sum + toEUR(Number(e.amount || 0), currencyIn, exchangeRates);
+    }
 
-    if (kind === "income" || kind === "reimbursement") return sum + amount;
-    if (kind === "expense") return sum - amount;
+    // Devise du COMPTE (pas e.currency qui peut être la devise de la transaction Revolut)
+    const currency = getAccountCurrency(accountCurrencies, e.bank, e.accountType);
+    const amountEUR = toEUR(Number(e.amount || 0), currency, exchangeRates);
 
-    // si tu as d'autres kinds, on ne les compte pas par défaut
+    if (kind === "income" || kind === "reimbursement") return sum + amountEUR;
+    if (kind === "expense") return sum - amountEUR;
+
     return sum;
   }, 0);
 }
@@ -142,6 +173,12 @@ export default function App() {
     return loaded.length ? loaded : DEFAULT_ACCOUNT_TYPES;
   });
 
+  // Multi-devises
+  const [accountCurrencies, setAccountCurrencies] = useState(() => loadAccountCurrencies());
+  const [exchangeRates, setExchangeRates] = useState(() => loadExchangeRates());
+  // Taux de contribution par compte (ex: 0.5 = 50% pour un compte partagé)
+  const [accountContribRates, setAccountContribRates] = useState(() => loadAccountContribRates());
+
   // Google Drive status
   const [driveStatus, setDriveStatus] = useState("Drive : non connecté");
   // "idle" | "saving" | "saved" | "error"
@@ -193,8 +230,8 @@ export default function App() {
     startDate = new Date(minTs);
   }
 
-  const startBal = totalBalanceAt(expenses, startDate);
-  const endBal = totalBalanceAt(expenses, now);
+  const startBal = totalBalanceAt(expenses, startDate, accountCurrencies, exchangeRates);
+  const endBal = totalBalanceAt(expenses, now, accountCurrencies, exchangeRates);
   const delta = endBal - startBal;
 
   const pct = startBal !== 0 ? (delta / startBal) * 100 : null;
@@ -294,6 +331,9 @@ export default function App() {
 // Persistance des banques et types de compte
   useEffect(() => saveBanks(banks), [banks]);
   useEffect(() => saveAccountTypes(accountTypes), [accountTypes]);
+  useEffect(() => saveAccountCurrencies(accountCurrencies), [accountCurrencies]);
+  useEffect(() => saveExchangeRates(exchangeRates), [exchangeRates]);
+  useEffect(() => saveAccountContribRates(accountContribRates), [accountContribRates]);
 
 
 
@@ -452,14 +492,35 @@ export default function App() {
   function addExpense(payload) {
     // Virement interne = 2 écritures : sortie + entrée (ne compte ni comme dépense ni comme revenu)
     if (payload?.kind === "transfer") {
-      const amount = Math.abs(payload.amount);
+      const amountOut = Math.abs(payload.amount);
+      // Si cross-devise, amountTo peut être différent ; sinon identique
+      const amountIn = payload.amountTo != null ? Math.abs(payload.amountTo) : amountOut;
+      const currencyFrom = payload.currencyFrom || "EUR";
+      const currencyTo   = payload.currencyTo   || "EUR";
       const transferId = uid();
+
+      // Auto-mémoriser le taux déduit si cross-devise
+      if (currencyFrom !== currencyTo && amountOut > 0) {
+        const impliedRate = amountIn / amountOut;
+        setExchangeRates(prev => ({
+          ...prev,
+          [`${currencyFrom}_EUR`]: currencyTo === "EUR"
+            ? Math.round(impliedRate * 10000) / 10000
+            : prev[`${currencyFrom}_EUR`],
+          [`${currencyTo}_EUR`]: currencyFrom === "EUR"
+            ? Math.round((amountOut / amountIn) * 10000) / 10000
+            : prev[`${currencyTo}_EUR`],
+        }));
+      }
 
       const out = {
         id: uid(),
         kind: "transfer_out",
         transferId,
-        amount,
+        amount: amountOut,
+        currency: currencyFrom,
+        amountTo: amountIn,
+        currencyTo,
         category: "Virement",
         subcategory: "",
         bank: payload.fromBank ?? payload.bank,
@@ -473,7 +534,10 @@ export default function App() {
         id: uid(),
         kind: "transfer_in",
         transferId,
-        amount,
+        amount: amountIn,
+        currency: currencyTo,
+        amountFrom: amountOut,
+        currencyFrom,
         category: "Virement",
         subcategory: "",
         bank: payload.toBank,
@@ -526,11 +590,13 @@ function createReimbursement({ linkedExpenseId, amount, date, bank, accountType,
   setExpenses(prev => [e, ...prev]);
 }
 
-function deleteExpense(id) {
+function deleteExpense(id, skipConfirm = false) {
     const target = expenses.find(e => e.id === id);
     const isTransfer = target && (target.kind === "transfer_in" || target.kind === "transfer_out") && target.transferId;
-    const msg = isTransfer ? "Supprimer ce virement (les 2 lignes) ?" : "Supprimer cette dépense ?";
-    if (!confirm(msg)) return;
+    if (!skipConfirm) {
+      const msg = isTransfer ? "Supprimer ce virement (les 2 lignes) ?" : "Supprimer cette dépense ?";
+      if (!confirm(msg)) return;
+    }
 
     if (isTransfer) {
       setExpenses(prev => prev.filter(e => e.transferId !== target.transferId));
@@ -562,6 +628,9 @@ function updateExpense(id, patch) {
         autoCatRules,
         forecastItems,
         forecastSettings,
+        accountCurrencies,
+        exchangeRates,
+        accountContribRates,
       },
     };
   }
@@ -579,6 +648,9 @@ function updateExpense(id, patch) {
     if (d.autoCatRules && typeof d.autoCatRules === "object")     setAutoCatRules(d.autoCatRules);
     if (Array.isArray(d.forecastItems))                           setForecastItems(d.forecastItems);
     if (d.forecastSettings && typeof d.forecastSettings === "object") setForecastSettings(d.forecastSettings);
+    if (d.accountCurrencies && typeof d.accountCurrencies === "object") setAccountCurrencies(d.accountCurrencies);
+    if (d.exchangeRates && typeof d.exchangeRates === "object")         setExchangeRates(d.exchangeRates);
+    if (d.accountContribRates && typeof d.accountContribRates === "object") setAccountContribRates(d.accountContribRates);
   }
 
   /**
@@ -740,12 +812,18 @@ function updateExpense(id, patch) {
           let income = 0, expenseGross = 0, reimb = 0, tIn = 0, tOut = 0;
           for (const e of expenses) {
             if (!e.date?.startsWith(monthKey)) continue;
-            const a = Number(e.amount || 0);
+            // Devise du COMPTE (pas e.currency qui est la devise de la transaction)
+            const currency = getAccountCurrency(accountCurrencies, e.bank, e.accountType);
+            const a = toEUR(Number(e.amount || 0), currency, exchangeRates);
             if (e.kind === "income")         income += a;
             if (e.kind === "expense")        expenseGross += a;
             if (e.kind === "reimbursement")  reimb += a;
-            if (e.kind === "transfer_in")    tIn += a;
-            if (e.kind === "transfer_out")   tOut += a;
+            // Virements : utiliser le montant figé pour les cross-devise (comme totalBalanceAt)
+            if (e.kind === "transfer_in")    tIn += a; // amount déjà en devise dest
+            if (e.kind === "transfer_out") {
+              if (currency !== "EUR" && e.amountTo != null) tOut += Number(e.amountTo);
+              else tOut += a;
+            }
           }
           const solde = income + reimb + tIn - expenseGross - tOut;
           const isPositive = solde >= 0;
@@ -857,6 +935,12 @@ function updateExpense(id, patch) {
           accountTypes={accountTypes}
           setAccountTypes={setAccountTypes}
           expenses={expenses}
+          accountCurrencies={accountCurrencies}
+          setAccountCurrencies={setAccountCurrencies}
+          exchangeRates={exchangeRates}
+          setExchangeRates={setExchangeRates}
+          accountContribRates={accountContribRates}
+          setAccountContribRates={setAccountContribRates}
           onConnectDrive={connectDrive}
           onBackupNow={backupNow}
           onRestoreNow={restoreFromDrive}
@@ -914,6 +998,7 @@ function updateExpense(id, patch) {
             ...prev,
             [cat]: [...(prev[cat] || []), name]
           }))}
+          accountCurrencies={accountCurrencies}
         />
       )}
 
@@ -933,6 +1018,9 @@ function updateExpense(id, patch) {
           onOpenWipeModal={() => setShowWipeModal(true)}
           banks={mergedBanks}
           accountTypes={mergedAccountTypes}
+          accountCurrencies={accountCurrencies}
+          exchangeRates={exchangeRates}
+          setExchangeRates={setExchangeRates}
         />
       )}
 
@@ -948,6 +1036,10 @@ function updateExpense(id, patch) {
           performance={performance}
           perfScope={perfScope}
           setPerfScope={setPerfScope}
+          accountCurrencies={accountCurrencies}
+          exchangeRates={exchangeRates}
+          accountContribRates={accountContribRates}
+          setTab={setTab}
         />
       )}
 

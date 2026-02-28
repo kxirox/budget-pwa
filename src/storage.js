@@ -9,6 +9,9 @@ const KEY_SUBCATEGORIES = "budget.subcategories.v1";
 
 const KEY_BANKS = "budgetpwa_banks";
 const KEY_ACCOUNT_TYPES = "budgetpwa_account_types";
+const KEY_ACCOUNT_CURRENCIES = "budget.accountCurrencies.v1";
+const KEY_EXCHANGE_RATES = "budget.exchangeRates.v1";
+const KEY_ACCOUNT_CONTRIB_RATES = "budget.accountContribRates.v1";
 
 function safeParse(json, fallback) {
   try {
@@ -72,6 +75,106 @@ export function saveCategoryColors(map) {
   try {
     localStorage.setItem(KEY_CATEGORY_COLORS, JSON.stringify(map || {}));
   } catch {}
+}
+
+// ---------------------------
+// Devises par compte (banque + type de compte)
+// Clé composite : "banque||typeCompte"
+// Valeur : "EUR" | "CHF" | "USD" | ...
+// Absent = EUR par défaut
+// ---------------------------
+export function loadAccountCurrencies() {
+  try {
+    const raw = localStorage.getItem(KEY_ACCOUNT_CURRENCIES);
+    const obj = raw ? JSON.parse(raw) : {};
+    return obj && typeof obj === "object" ? obj : {};
+  } catch {
+    return {};
+  }
+}
+
+export function saveAccountCurrencies(map) {
+  try {
+    localStorage.setItem(KEY_ACCOUNT_CURRENCIES, JSON.stringify(map || {}));
+  } catch {}
+}
+
+/**
+ * Retourne la devise d'un compte (banque + type).
+ * "EUR" si la paire n'est pas configurée.
+ */
+export function getAccountCurrency(accountCurrencies, bank, accountType) {
+  if (!accountCurrencies) return "EUR";
+  const key = `${bank}||${accountType}`;
+  return accountCurrencies[key] || "EUR";
+}
+
+// ---------------------------
+// Taux de contribution par compte (banque + type de compte)
+// Clé composite : "banque||typeCompte"
+// Valeur : decimal entre 0 (exclu) et 1 (inclus) — ex: 0.5 = 50%
+// Absent = 1.0 (100%) par défaut
+// ---------------------------
+export function loadAccountContribRates() {
+  try {
+    const raw = localStorage.getItem(KEY_ACCOUNT_CONTRIB_RATES);
+    const obj = raw ? JSON.parse(raw) : {};
+    return obj && typeof obj === "object" ? obj : {};
+  } catch {
+    return {};
+  }
+}
+
+export function saveAccountContribRates(map) {
+  try {
+    localStorage.setItem(KEY_ACCOUNT_CONTRIB_RATES, JSON.stringify(map || {}));
+  } catch {}
+}
+
+/**
+ * Retourne le taux de contribution pour un compte (banque + type).
+ * Retourne 1.0 (100%) si la paire n'est pas configurée.
+ * La valeur est un decimal : 0.5 = 50%, 1.0 = 100%.
+ */
+export function getContribRate(accountContribRates, bank, accountType) {
+  if (!accountContribRates) return 1.0;
+  const key = `${bank}||${accountType}`;
+  const v = accountContribRates[key];
+  if (v === undefined || v === null) return 1.0;
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 && n <= 1 ? n : 1.0;
+}
+
+// ---------------------------
+// Taux de change vers EUR
+// Format : { "CHF_EUR": 0.9512, "EUR_CHF": 1.0512 }
+// Convention : 1 unitéSource = X EUR
+// ---------------------------
+export function loadExchangeRates() {
+  try {
+    const raw = localStorage.getItem(KEY_EXCHANGE_RATES);
+    const obj = raw ? JSON.parse(raw) : {};
+    return obj && typeof obj === "object" ? obj : {};
+  } catch {
+    return {};
+  }
+}
+
+export function saveExchangeRates(rates) {
+  try {
+    localStorage.setItem(KEY_EXCHANGE_RATES, JSON.stringify(rates || {}));
+  } catch {}
+}
+
+/**
+ * Convertit un montant vers EUR.
+ * Si la devise est EUR ou si le taux est inconnu → retourne le montant tel quel (fallback safe).
+ */
+export function toEUR(amount, currency, exchangeRates) {
+  if (!currency || currency === "EUR") return amount;
+  const rate = exchangeRates?.[`${currency}_EUR`];
+  if (!rate || !Number.isFinite(rate)) return amount;
+  return amount * rate;
 }
 
 
