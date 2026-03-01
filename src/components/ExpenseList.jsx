@@ -8,7 +8,7 @@ import { getAccountCurrency, toEUR } from "../storage";
 // import ImportCreditMutuel from "./ImportCreditMutuel";
 
 
-export default function ExpenseList({ expenses, categories, subcategoriesMap = {}, categoryColors = {}, banks, accountTypes, people = [], onDelete, onUpdate, onImport, onCreateReimbursement, onOpenWipeModal, accountCurrencies = {}, exchangeRates = {}, setExchangeRates }) {
+export default function ExpenseList({ expenses, categories, subcategoriesMap = {}, categoryColors = {}, banks, accountTypes, people = [], onDelete, onUpdate, onImport, onCreateReimbursement, onOpenWipeModal, accountCurrencies = {}, exchangeRates = {}, setExchangeRates, previousTab = null, onBack = () => {} }) {
   // Filtres par défaut
   const defaultFilters = {
     month: "ALL",
@@ -920,6 +920,7 @@ const renderItem = useCallback((e) => {
 
   return (
     <div style={{ padding: 12, display: "grid", gap: 12 }}>
+
       <div style={styles.card}>
         <div style={{ display: "grid", gap: 10 }}>
          <div
@@ -1284,6 +1285,29 @@ const renderItem = useCallback((e) => {
             </button>
           </div>
         </div>
+      )}
+
+      {/* ── Bouton retour (visible uniquement si on vient d'un autre onglet via navigation interne) ── */}
+      {previousTab && (
+        <button
+          onClick={onBack}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            padding: "10px 16px",
+            borderRadius: 12,
+            border: "1px solid #d4c9ae",
+            background: "#fdfaf5",
+            color: "#374151",
+            fontWeight: 700,
+            fontSize: 14,
+            cursor: "pointer",
+            width: "fit-content",
+          }}
+        >
+          ← Retour vers {previousTab === "stats" ? "Stats" : previousTab}
+        </button>
       )}
 
       {filtered.length === 0 ? (

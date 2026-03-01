@@ -105,6 +105,7 @@ export default function Stats({
   exchangeRates = {},
   accountContribRates = {},
   setTab = () => {},
+  setPreviousTab = () => {},
 }) {
   // Filtres par défaut
   const defaultFilters = {
@@ -199,6 +200,7 @@ export default function Stats({
       amountMax: "",
     };
     saveFilters("history", historyFilters);
+    setPreviousTab("stats");
     setTab("list");
   }
 
@@ -219,6 +221,7 @@ export default function Stats({
       amountMax: "",
     };
     saveFilters("history", historyFilters);
+    setPreviousTab("stats");
     setTab("list");
   }
 

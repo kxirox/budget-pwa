@@ -151,6 +151,7 @@ export default function App() {
   };
 
   const [tab, setTab] = useState(loadActiveTab);
+  const [previousTab, setPreviousTab] = useState(null); // onglet d'origine pour le bouton retour
   
   // Sauvegarder l'onglet actif à chaque changement
   useEffect(() => {
@@ -1021,6 +1022,8 @@ function updateExpense(id, patch) {
           accountCurrencies={accountCurrencies}
           exchangeRates={exchangeRates}
           setExchangeRates={setExchangeRates}
+          previousTab={previousTab}
+          onBack={() => { setTab(previousTab); setPreviousTab(null); }}
         />
       )}
 
@@ -1040,6 +1043,7 @@ function updateExpense(id, patch) {
           exchangeRates={exchangeRates}
           accountContribRates={accountContribRates}
           setTab={setTab}
+          setPreviousTab={setPreviousTab}
         />
       )}
 
