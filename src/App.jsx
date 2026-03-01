@@ -152,6 +152,7 @@ export default function App() {
 
   const [tab, setTab] = useState(loadActiveTab);
   const [previousTab, setPreviousTab] = useState(null); // onglet d'origine pour le bouton retour
+  const [scrollTarget, setScrollTarget] = useState(null); // id de l'élément à scroller au retour
   
   // Sauvegarder l'onglet actif à chaque changement
   useEffect(() => {
@@ -1024,6 +1025,8 @@ function updateExpense(id, patch) {
           setExchangeRates={setExchangeRates}
           previousTab={previousTab}
           onBack={() => { setTab(previousTab); setPreviousTab(null); }}
+          scrollTarget={scrollTarget}
+          onScrollDone={() => setScrollTarget(null)}
         />
       )}
 
@@ -1044,6 +1047,9 @@ function updateExpense(id, patch) {
           accountContribRates={accountContribRates}
           setTab={setTab}
           setPreviousTab={setPreviousTab}
+          setScrollTarget={setScrollTarget}
+          scrollTarget={scrollTarget}
+          onScrollDone={() => setScrollTarget(null)}
         />
       )}
 

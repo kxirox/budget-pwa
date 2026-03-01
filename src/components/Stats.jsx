@@ -106,6 +106,9 @@ export default function Stats({
   accountContribRates = {},
   setTab = () => {},
   setPreviousTab = () => {},
+  setScrollTarget = () => {},
+  scrollTarget = null,
+  onScrollDone = () => {},
 }) {
   // Filtres par défaut
   const defaultFilters = {
@@ -142,6 +145,18 @@ export default function Stats({
 
   // Accordéon tableau contributions
   const [showAllContrib, setShowAllContrib] = useState(false);
+
+  // Scroll vers le camembert d'origine au montage (retour depuis Historique)
+  useEffect(() => {
+    if (!scrollTarget) return;
+    // Petit délai pour laisser le temps au DOM de se rendre
+    const timer = setTimeout(() => {
+      const el = document.getElementById(scrollTarget);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+      onScrollDone();
+    }, 80);
+    return () => clearTimeout(timer);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Sauvegarder les filtres à chaque changement
   useEffect(() => {
@@ -201,6 +216,7 @@ export default function Stats({
     };
     saveFilters("history", historyFilters);
     setPreviousTab("stats");
+    setScrollTarget("stats-pie-repartition");
     setTab("list");
   }
 
@@ -222,6 +238,7 @@ export default function Stats({
     };
     saveFilters("history", historyFilters);
     setPreviousTab("stats");
+    setScrollTarget("stats-pie-moyenne");
     setTab("list");
   }
 
@@ -1266,7 +1283,7 @@ const subcatData = useMemo(() => {
         )}
       </div>
 
-      <div style={styles.card}>
+      <div id="stats-pie-repartition" style={styles.card}>
         <h3 style={{ margin: 0, marginBottom: 10 }}>Répartition des dépenses</h3>
 
 
@@ -1313,7 +1330,7 @@ const subcatData = useMemo(() => {
       </div>
 
       {/* ── Camembert moyenne mensuelle 12 mois glissants ── */}
-      <div style={styles.card}>
+      <div id="stats-pie-moyenne" style={styles.card}>
         <h3 style={{ margin: 0, marginBottom: 4 }}>Moyenne mensuelle (12 mois glissants)</h3>
         <div style={{ color: "#9ca3af", fontSize: 12, marginBottom: 10 }}>
           Indépendant du filtre de période · Filtres banque/compte appliqués
