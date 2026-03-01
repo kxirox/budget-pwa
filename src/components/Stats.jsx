@@ -1345,7 +1345,7 @@ const subcatData = useMemo(() => {
                       />
                     ))}
                   </Pie>
-                  <Tooltip formatter={(v) => [formatEUR(v) + "/mois", ""]} />
+                  <Tooltip formatter={(v, name) => [formatEUR(v) + "/mois", name]} />
                 </PieChart>
               </ResponsiveContainer>
             </div>
