@@ -475,11 +475,24 @@ const totals = useMemo(() => {
   // Champs cross-devise pour les virements
   const [editAmountTo, setEditAmountTo] = useState("");
 
+  // ── Personnes extraites dynamiquement des dépenses (même source que l'onglet Dettes) ──
+  const peopleFromExpenses = useMemo(() => {
+    const set = new Set();
+    for (const e of expenses) {
+      const p = String(e.person ?? "").trim();
+      if (p) set.add(p);
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [expenses]);
+
   // ── Modal remboursement rapide ──
   const [reimbModalExpense, setReimbModalExpense] = useState(null);
   const [reimbAmount, setReimbAmount] = useState("");
   const [reimbDate, setReimbDate] = useState("");
   const [reimbPerson, setReimbPerson] = useState("");
+  const [reimbCategory, setReimbCategory] = useState("");
+  const [reimbNote, setReimbNote] = useState("");
+  const [reimbPersonNew, setReimbPersonNew] = useState(""); // champ texte si "nouvelle personne"
 
 
 
@@ -532,7 +545,10 @@ const totals = useMemo(() => {
     setReimbModalExpense(expense);
     setReimbAmount("");
     setReimbDate(toISODate(new Date()));
-    setReimbPerson(expense.person ?? "");
+    setReimbPerson(""); // vide par défaut
+    setReimbPersonNew("");
+    setReimbCategory(expense.category ?? (categories[0] ?? "Autres"));
+    setReimbNote("");
   }
 
   function closeReimbModal() {
@@ -540,6 +556,9 @@ const totals = useMemo(() => {
     setReimbAmount("");
     setReimbDate("");
     setReimbPerson("");
+    setReimbPersonNew("");
+    setReimbCategory("");
+    setReimbNote("");
   }
 
   function submitReimb() {
@@ -548,19 +567,26 @@ const totals = useMemo(() => {
       alert("Montant invalide.");
       return;
     }
+    // Si "nouvelle personne" sélectionnée, utiliser le champ texte
+    const finalPerson = reimbPerson === "__new__"
+      ? reimbPersonNew.trim()
+      : reimbPerson.trim();
     onCreateReimbursement({
       linkedExpenseId: reimbModalExpense.id,
       amount: a,
       date: reimbDate,
       bank: reimbModalExpense.bank,
       accountType: reimbModalExpense.accountType,
-      note: "",
-      person: reimbPerson.trim(),
+      note: reimbNote.trim(),
+      person: finalPerson,
+      category: reimbCategory || reimbModalExpense.category || (categories[0] ?? "Autres"),
     });
     // Rester dans le modal pour pouvoir ajouter d'autres remboursements
     setReimbAmount("");
     setReimbPerson("");
-    // reimbDate reste inchangée (pratique pour plusieurs remb le même jour)
+    setReimbPersonNew("");
+    setReimbNote("");
+    // reimbCategory et reimbDate restent inchangées (pratique pour plusieurs remb le même jour)
   }
 
 function makeId() {
@@ -1787,18 +1813,55 @@ const renderItem = useCallback((e) => {
                 <div style={{ display: "grid", gap: 12 }}>
                   <label style={styles.label}>
                     Personne qui rembourse
-                    <input
-                      list="reimb-people-list"
+                    <select
                       value={reimbPerson}
-                      onChange={e => setReimbPerson(e.target.value)}
-                      placeholder="Thomas, Laurie…"
+                      onChange={e => { setReimbPerson(e.target.value); setReimbPersonNew(""); }}
+                      style={styles.input}
+                    >
+                      <option value="">— Choisir —</option>
+                      {peopleFromExpenses.map(p => (
+                        <option key={p} value={p}>{p}</option>
+                      ))}
+                      <option value="__new__">➕ Nouvelle personne…</option>
+                    </select>
+                  </label>
+
+                  {reimbPerson === "__new__" && (
+                    <label style={styles.label}>
+                      Nom de la nouvelle personne
+                      <input
+                        type="text"
+                        value={reimbPersonNew}
+                        onChange={e => setReimbPersonNew(e.target.value)}
+                        placeholder="ex : Thomas"
+                        style={styles.input}
+                        autoFocus
+                      />
+                    </label>
+                  )}
+
+                  <label style={styles.label}>
+                    Catégorie du remboursement
+                    <select
+                      value={reimbCategory}
+                      onChange={e => setReimbCategory(e.target.value)}
+                      style={styles.input}
+                    >
+                      {categories.map(c => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label style={styles.label}>
+                    Note / description
+                    <input
+                      type="text"
+                      value={reimbNote}
+                      onChange={e => setReimbNote(e.target.value)}
+                      placeholder="ex : Remboursement Airbnb juillet…"
                       style={styles.input}
                     />
-                    <datalist id="reimb-people-list">
-                      {(Array.isArray(people) ? people : []).map(p => (
-                        <option key={p} value={p} />
-                      ))}
-                    </datalist>
                   </label>
 
                   <label style={styles.label}>

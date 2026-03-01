@@ -573,13 +573,13 @@ export default function App() {
   }
 
   
-function createReimbursement({ linkedExpenseId, amount, date, bank, accountType, note, person }) {
+function createReimbursement({ linkedExpenseId, amount, date, bank, accountType, note, person, category }) {
   const e = {
     id: uid(),
     kind: "reimbursement",
     linkedExpenseId,
     amount: Math.abs(amount),
-    category: "Autres",
+    category: category ?? "Autres",
     subcategory: "",
     bank: bank ?? "Physique",
     accountType: accountType ?? "Compte courant",
