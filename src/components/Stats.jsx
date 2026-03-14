@@ -758,13 +758,8 @@ const subcatData = useMemo(() => {
       // On utilise toujours la devise du COMPTE (accountCurrencies), pas e.currency
       // qui est la devise de la transaction (peut être EUR sur un compte CHF)
       const currency = getAccountCurrency(accountCurrencies, e.bank, e.accountType);
-      // Pour transfer_out cross-devise : utiliser amountTo figé (pas de reconversion via taux global)
-      let amountEUR;
-      if (e.kind === "transfer_out" && currency !== "EUR" && e.amountTo != null) {
-        amountEUR = Number(e.amountTo);
-      } else {
-        amountEUR = toEUR(Number(e.amount || 0), currency, exchangeRates);
-      }
+      // Toujours convertir au taux actuel pour cohérence avec l'historique
+      const amountEUR = toEUR(Number(e.amount || 0), currency, exchangeRates);
       const signed = (e.kind === "income" || e.kind === "reimbursement" || e.kind === "transfer_in")
         ? amountEUR : -amountEUR;
 
