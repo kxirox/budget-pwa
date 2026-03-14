@@ -1362,6 +1362,10 @@ const subcatData = useMemo(() => {
               </ResponsiveContainer>
             </div>
 
+            <div style={{ textAlign: "center", marginTop: 10, fontSize: 15, fontWeight: 700, color: "#111827" }}>
+              Total : {formatEUR(avgExpenseData.reduce((s, d) => s + d.value, 0))}/mois
+            </div>
+
             <div style={{ color: "#9ca3af", fontSize: 11, textAlign: "center", marginTop: 4, marginBottom: 2 }}>
               Cliquer sur une tranche pour voir le détail dans l'historique (toutes périodes)
             </div>
