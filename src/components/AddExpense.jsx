@@ -43,11 +43,11 @@ const expenseOptions = useMemo(() => {
   return (Array.isArray(expenses) ? expenses : [])
     .filter(e => e.kind === "expense")
     .slice()
-    .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")))
-    .slice(0, 60);
+    .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
 }, [expenses]);
 
 const [linkedExpenseId, setLinkedExpenseId] = useState(() => expenseOptions[0]?.id || "");
+const [linkedExpenseSearch, setLinkedExpenseSearch] = useState("");
 
 useEffect(() => {
   if (kind !== "reimbursement") return;
@@ -133,6 +133,7 @@ useEffect(() => {
   setPerson("");
   setSubcategory("");
   setContributor("external");
+  setLinkedExpenseSearch("");
 
   setJustAdded(true);
   setTimeout(() => setJustAdded(false), 1500);
@@ -155,39 +156,49 @@ useEffect(() => {
         </label>
 
 {kind === "reimbursement" && (() => {
-  const expenseChoices = expenses
-    .filter((x) => x.kind === "expense")
-    .slice()
-    .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")))
-    .slice(0, 80);
+  const q = linkedExpenseSearch.trim().toLowerCase();
+  const expenseChoices = q
+    ? expenseOptions
+        .filter(x =>
+          String(x.date || "").includes(q) ||
+          String(x.label || "").toLowerCase().includes(q) ||
+          String(x.note || "").toLowerCase().includes(q) ||
+          String(x.category || "").toLowerCase().includes(q) ||
+          String(Number(x.amount || 0).toFixed(2)).includes(q)
+        )
+        .slice(0, 200)
+    : expenseOptions.slice(0, 80);
 
   const linked =
-    expenseChoices.find((x) => x.id === linkedExpenseId) ||
-    expenses.find((x) => x.id === linkedExpenseId);
+    expenseOptions.find((x) => x.id === linkedExpenseId);
 
   return (
-    <label style={{ ...styles.label, ...styles.wrapField }}>
-      Dépense remboursée
+    <div style={{ display: "grid", gap: 6 }}>
+      <span style={styles.label}>Dépense remboursée</span>
+      <input
+        placeholder="🔍 date, libellé, montant, catégorie…"
+        value={linkedExpenseSearch}
+        onChange={(e) => setLinkedExpenseSearch(e.target.value)}
+        style={styles.input}
+      />
       <select
         value={linkedExpenseId}
         onChange={(e) => setLinkedExpenseId(e.target.value)}
         style={{ ...styles.input, width: "100%", minWidth: 0 }}
       >
         <option value="">— Choisir —</option>
-
         {expenseChoices.map((ex) => (
           <option key={ex.id} value={ex.id}>
-            {ex.date} • {ex.category} • {Number(ex.amount || 0).toFixed(2)}€
+            {ex.date} • {ex.category} • {Number(ex.amount || 0).toFixed(2)}€{ex.label ? ` • ${ex.label}` : ""}
           </option>
         ))}
       </select>
-
       {linked && (
-        <div style={{ ...styles.muted, ...styles.wrapText }}>
+        <div style={{ ...styles.muted, ...styles.wrapText, fontSize: 12, color: "#6b7280" }}>
           {linked.note ? `Note : ${linked.note}` : "Note : (aucune)"}
         </div>
       )}
-    </label>
+    </div>
   );
 })()}
 
