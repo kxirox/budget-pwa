@@ -5,7 +5,7 @@ import {
   ResponsiveContainer, CartesianGrid, Legend,
 } from "recharts";
 
-const LINE_TYPES = ["ETF", "Action", "Obligation", "SCPI", "Crypto", "Autre"];
+const LINE_TYPE_SUGGESTIONS = ["ETF", "Action", "Obligation", "SCPI", "Or", "Crypto", "Immobilier", "Autre"];
 
 function fmt(n) {
   if (!Number.isFinite(n)) return "—";
@@ -37,6 +37,8 @@ export default function Investments({ investments, onSave, banks = [], accountTy
   const [showAccountModal, setShowAccountModal] = useState(false);
   const [showSnapshotModal, setShowSnapshotModal] = useState(null); // accountId
   const [showPurchaseModal, setShowPurchaseModal] = useState(null); // accountId
+  const [showEditLinesModal, setShowEditLinesModal] = useState(null); // accountId
+  const [editLinesState, setEditLinesState] = useState([]); // copie locale des lignes en cours d'édition
   const [expandedId, setExpandedId] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null); // { type, id }
 
@@ -168,6 +170,27 @@ export default function Investments({ investments, onSave, banks = [], accountTy
     setFormLineType("ETF");
   }
 
+  function openEditLinesModal(accountId) {
+    const acc = accounts.find(a => a.id === accountId);
+    if (!acc) return;
+    // Copie profonde pour édition locale
+    setEditLinesState((acc.lines || []).map(l => ({ ...l })));
+    setShowEditLinesModal(accountId);
+  }
+
+  function saveEditedLines() {
+    const acc = accounts.find(a => a.id === showEditLinesModal);
+    if (!acc) return;
+    const cleaned = editLinesState
+      .map(l => ({ ...l, name: l.name.trim(), type: l.type.trim() }))
+      .filter(l => l.name);
+    const updatedAccounts = accounts.map(a =>
+      a.id === showEditLinesModal ? { ...a, lines: cleaned } : a
+    );
+    onSave({ ...investments, accounts: updatedAccounts });
+    setShowEditLinesModal(null);
+  }
+
   function deleteAccount(accountId) {
     onSave({
       accounts: accounts.filter(a => a.id !== accountId),
@@ -227,6 +250,7 @@ export default function Investments({ investments, onSave, banks = [], accountTy
             <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
               <button onClick={() => openSnapshotModal(acc.id)} style={styles.btnSmall}>📸</button>
               <button onClick={() => openPurchaseModal(acc.id)} style={styles.btnSmall}>💶</button>
+              <button onClick={() => openEditLinesModal(acc.id)} style={styles.btnSmall}>✏️</button>
               <button
                 onClick={() => setDeleteConfirm({ type: "account", id: acc.id })}
                 style={{ ...styles.btnSmall, color: "#ef4444" }}
@@ -406,6 +430,9 @@ export default function Investments({ investments, onSave, banks = [], accountTy
                     <button onClick={() => setFormLines(prev => prev.filter(x => x.id !== l.id))} style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", padding: 0 }}>✕</button>
                   </div>
                 ))}
+                <datalist id="line-type-suggestions">
+                  {LINE_TYPE_SUGGESTIONS.map(t => <option key={t} value={t} />)}
+                </datalist>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: 6, marginTop: 4 }}>
                   <input
                     placeholder="ex: ETF MSCI World"
@@ -414,9 +441,13 @@ export default function Investments({ investments, onSave, banks = [], accountTy
                     onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addFormLine(); } }}
                     style={{ ...styles.input, margin: 0 }}
                   />
-                  <select value={formLineType} onChange={e => setFormLineType(e.target.value)} style={{ ...styles.input, margin: 0 }}>
-                    {LINE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                  </select>
+                  <input
+                    list="line-type-suggestions"
+                    placeholder="Type"
+                    value={formLineType}
+                    onChange={e => setFormLineType(e.target.value)}
+                    style={{ ...styles.input, margin: 0, width: 100 }}
+                  />
                   <button onClick={addFormLine} style={styles.btnSmall}>+</button>
                 </div>
               </div>
@@ -551,6 +582,91 @@ export default function Investments({ investments, onSave, banks = [], accountTy
                     Enregistrer
                   </button>
                 </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── Modal : Édition des lignes ── */}
+      {showEditLinesModal && (() => {
+        const acc = accounts.find(a => a.id === showEditLinesModal);
+        if (!acc) return null;
+        return (
+          <div style={styles.backdrop} onClick={() => setShowEditLinesModal(null)}>
+            <div style={styles.modal} onClick={e => e.stopPropagation()}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <h3 style={{ margin: 0 }}>✏️ Modifier les lignes</h3>
+                <button onClick={() => setShowEditLinesModal(null)} style={styles.btnX}>✕</button>
+              </div>
+              <div style={{ color: "#6b7280", fontSize: 13, marginBottom: 14 }}>{acc.bank} — {acc.accountType}</div>
+
+              <datalist id="edit-line-type-suggestions">
+                {LINE_TYPE_SUGGESTIONS.map(t => <option key={t} value={t} />)}
+              </datalist>
+
+              <div style={{ display: "grid", gap: 8, marginBottom: 12 }}>
+                {editLinesState.length === 0 && (
+                  <div style={{ color: "#6b7280", fontSize: 13 }}>Aucune ligne. Ajoutez-en une ci-dessous.</div>
+                )}
+                {editLinesState.map((l, i) => (
+                  <div key={l.id} style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: 6, alignItems: "center" }}>
+                    <input
+                      value={l.name}
+                      onChange={e => setEditLinesState(prev => prev.map((x, j) => j === i ? { ...x, name: e.target.value } : x))}
+                      placeholder="Nom de la ligne"
+                      style={{ ...styles.input, margin: 0 }}
+                    />
+                    <input
+                      list="edit-line-type-suggestions"
+                      value={l.type}
+                      onChange={e => setEditLinesState(prev => prev.map((x, j) => j === i ? { ...x, type: e.target.value } : x))}
+                      placeholder="Type"
+                      style={{ ...styles.input, margin: 0, width: 110 }}
+                    />
+                    <button
+                      onClick={() => setEditLinesState(prev => prev.filter((_, j) => j !== i))}
+                      style={{ ...styles.btnSmall, color: "#ef4444" }}
+                    >✕</button>
+                  </div>
+                ))}
+              </div>
+
+              {/* Ajout d'une nouvelle ligne depuis cette modale */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: 6, marginBottom: 16, paddingTop: 10, borderTop: "1px solid #e8dfc8" }}>
+                <input
+                  placeholder="Nouvelle ligne…"
+                  value={formLineName}
+                  onChange={e => setFormLineName(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === "Enter" && formLineName.trim()) {
+                      e.preventDefault();
+                      setEditLinesState(prev => [...prev, { id: uid(), name: formLineName.trim(), type: formLineType || "Autre" }]);
+                      setFormLineName("");
+                    }
+                  }}
+                  style={{ ...styles.input, margin: 0 }}
+                />
+                <input
+                  list="edit-line-type-suggestions"
+                  placeholder="Type"
+                  value={formLineType}
+                  onChange={e => setFormLineType(e.target.value)}
+                  style={{ ...styles.input, margin: 0, width: 110 }}
+                />
+                <button
+                  onClick={() => {
+                    if (!formLineName.trim()) return;
+                    setEditLinesState(prev => [...prev, { id: uid(), name: formLineName.trim(), type: formLineType || "Autre" }]);
+                    setFormLineName("");
+                  }}
+                  style={styles.btnSmall}
+                >+</button>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <button onClick={() => setShowEditLinesModal(null)} style={styles.btnSecondary}>Annuler</button>
+                <button onClick={saveEditedLines} style={styles.btnPrimary}>Enregistrer</button>
               </div>
             </div>
           </div>
