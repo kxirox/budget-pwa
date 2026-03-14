@@ -7,6 +7,46 @@ import {
 
 const LINE_TYPE_SUGGESTIONS = ["ETF", "Action", "Obligation", "SCPI", "Or", "Crypto", "Immobilier", "Autre"];
 
+// Select avec liste + option "Personnalisé…" qui bascule sur un input libre
+function TypeSelector({ value, onChange, inputStyle }) {
+  const isCustom = value !== undefined && !LINE_TYPE_SUGGESTIONS.includes(value);
+  const [customMode, setCustomMode] = React.useState(() => isCustom);
+
+  if (customMode) {
+    return (
+      <div style={{ display: "flex", gap: 4, alignItems: "center", width: 110 }}>
+        <input
+          autoFocus
+          placeholder="Type…"
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          style={{ ...inputStyle, flex: 1, minWidth: 0 }}
+        />
+        <button
+          type="button"
+          title="Retour à la liste"
+          onClick={() => { setCustomMode(false); onChange(LINE_TYPE_SUGGESTIONS[0]); }}
+          style={{ background: "none", border: "none", cursor: "pointer", fontSize: 14, color: "#6b7280", padding: 0, flexShrink: 0 }}
+        >↩</button>
+      </div>
+    );
+  }
+
+  return (
+    <select
+      value={LINE_TYPE_SUGGESTIONS.includes(value) ? value : LINE_TYPE_SUGGESTIONS[0]}
+      onChange={e => {
+        if (e.target.value === "__custom__") { setCustomMode(true); onChange(""); }
+        else onChange(e.target.value);
+      }}
+      style={{ ...inputStyle, width: 110 }}
+    >
+      {LINE_TYPE_SUGGESTIONS.map(t => <option key={t} value={t}>{t}</option>)}
+      <option value="__custom__">✏️ Personnalisé…</option>
+    </select>
+  );
+}
+
 function fmt(n) {
   if (!Number.isFinite(n)) return "—";
   return n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €";
@@ -430,9 +470,6 @@ export default function Investments({ investments, onSave, banks = [], accountTy
                     <button onClick={() => setFormLines(prev => prev.filter(x => x.id !== l.id))} style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", padding: 0 }}>✕</button>
                   </div>
                 ))}
-                <datalist id="line-type-suggestions">
-                  {LINE_TYPE_SUGGESTIONS.map(t => <option key={t} value={t} />)}
-                </datalist>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: 6, marginTop: 4 }}>
                   <input
                     placeholder="ex: ETF MSCI World"
@@ -441,13 +478,7 @@ export default function Investments({ investments, onSave, banks = [], accountTy
                     onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addFormLine(); } }}
                     style={{ ...styles.input, margin: 0 }}
                   />
-                  <input
-                    list="line-type-suggestions"
-                    placeholder="Type"
-                    value={formLineType}
-                    onChange={e => setFormLineType(e.target.value)}
-                    style={{ ...styles.input, margin: 0, width: 100 }}
-                  />
+                  <TypeSelector value={formLineType} onChange={setFormLineType} inputStyle={{ ...styles.input, margin: 0 }} />
                   <button onClick={addFormLine} style={styles.btnSmall}>+</button>
                 </div>
               </div>
@@ -601,10 +632,6 @@ export default function Investments({ investments, onSave, banks = [], accountTy
               </div>
               <div style={{ color: "#6b7280", fontSize: 13, marginBottom: 14 }}>{acc.bank} — {acc.accountType}</div>
 
-              <datalist id="edit-line-type-suggestions">
-                {LINE_TYPE_SUGGESTIONS.map(t => <option key={t} value={t} />)}
-              </datalist>
-
               <div style={{ display: "grid", gap: 8, marginBottom: 12 }}>
                 {editLinesState.length === 0 && (
                   <div style={{ color: "#6b7280", fontSize: 13 }}>Aucune ligne. Ajoutez-en une ci-dessous.</div>
@@ -617,12 +644,11 @@ export default function Investments({ investments, onSave, banks = [], accountTy
                       placeholder="Nom de la ligne"
                       style={{ ...styles.input, margin: 0 }}
                     />
-                    <input
-                      list="edit-line-type-suggestions"
+                    <TypeSelector
+                      key={l.id}
                       value={l.type}
-                      onChange={e => setEditLinesState(prev => prev.map((x, j) => j === i ? { ...x, type: e.target.value } : x))}
-                      placeholder="Type"
-                      style={{ ...styles.input, margin: 0, width: 110 }}
+                      onChange={v => setEditLinesState(prev => prev.map((x, j) => j === i ? { ...x, type: v } : x))}
+                      inputStyle={{ ...styles.input, margin: 0 }}
                     />
                     <button
                       onClick={() => setEditLinesState(prev => prev.filter((_, j) => j !== i))}
@@ -641,23 +667,17 @@ export default function Investments({ investments, onSave, banks = [], accountTy
                   onKeyDown={e => {
                     if (e.key === "Enter" && formLineName.trim()) {
                       e.preventDefault();
-                      setEditLinesState(prev => [...prev, { id: uid(), name: formLineName.trim(), type: formLineType || "Autre" }]);
+                      setEditLinesState(prev => [...prev, { id: uid(), name: formLineName.trim(), type: formLineType || "ETF" }]);
                       setFormLineName("");
                     }
                   }}
                   style={{ ...styles.input, margin: 0 }}
                 />
-                <input
-                  list="edit-line-type-suggestions"
-                  placeholder="Type"
-                  value={formLineType}
-                  onChange={e => setFormLineType(e.target.value)}
-                  style={{ ...styles.input, margin: 0, width: 110 }}
-                />
+                <TypeSelector value={formLineType} onChange={setFormLineType} inputStyle={{ ...styles.input, margin: 0 }} />
                 <button
                   onClick={() => {
                     if (!formLineName.trim()) return;
-                    setEditLinesState(prev => [...prev, { id: uid(), name: formLineName.trim(), type: formLineType || "Autre" }]);
+                    setEditLinesState(prev => [...prev, { id: uid(), name: formLineName.trim(), type: formLineType || "ETF" }]);
                     setFormLineName("");
                   }}
                   style={styles.btnSmall}
