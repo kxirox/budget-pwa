@@ -32,6 +32,8 @@ import {
   toEUR,
   loadAccountContribRates,
   saveAccountContribRates,
+  loadInvestments,
+  saveInvestments,
 } from "./storage.js";
 import { loadRecurring, saveRecurring } from "./storage.js";
 import { loadSubcategories, saveSubcategories } from "./storage.js";
@@ -40,6 +42,7 @@ import Recurring from "./components/Recurring.jsx";
 import Forecast from "./components/Forecast.jsx";
 import ManageLists from "./components/ManageLists";
 import SubCategories from "./components/SubCategories.jsx";
+import Investments from "./components/Investments.jsx";
 import ImportExport from "./components/ImportExport.jsx";
 import { loadBanks, saveBanks, loadAccountTypes, saveAccountTypes } from "./storage";
 import {
@@ -206,6 +209,8 @@ export default function App() {
   const [forecastItems, setForecastItems] = useState(() => loadForecastItems());
   const [forecastSettings, setForecastSettings] = useState(() => loadForecastSettings());
 
+  const [investments, setInvestments] = useState(() => loadInvestments());
+
   const [perfScope, setPerfScope] = useState("7d"); // "7d" | "1m" | "1y" | "all"
 
 
@@ -364,6 +369,9 @@ export default function App() {
   // Persistance du prévisionnel
   useEffect(() => saveForecastItems(forecastItems), [forecastItems]);
   useEffect(() => saveForecastSettings(forecastSettings), [forecastSettings]);
+
+  // Persistance des investissements
+  useEffect(() => saveInvestments(investments), [investments]);
 
 
 
@@ -1050,11 +1058,21 @@ function updateExpense(id, patch) {
           accountCurrencies={accountCurrencies}
           exchangeRates={exchangeRates}
           accountContribRates={accountContribRates}
+          investments={investments}
           setTab={setTab}
           setPreviousTab={setPreviousTab}
           setScrollTarget={setScrollTarget}
           scrollTarget={scrollTarget}
           onScrollDone={() => setScrollTarget(null)}
+        />
+      )}
+
+      {tab === "invest" && (
+        <Investments
+          investments={investments}
+          onSave={setInvestments}
+          banks={mergedBanks}
+          accountTypes={mergedAccountTypes}
         />
       )}
 

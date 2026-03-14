@@ -409,3 +409,31 @@ export function saveForecastSettings(settings) {
   } catch {}
 }
 
+// ---------------------------
+// Investissements (portefeuille)
+// { accounts: [], purchases: [], snapshots: [] }
+// ---------------------------
+const KEY_INVESTMENTS = "budget.investments.v1";
+const DEFAULT_INVESTMENTS = { accounts: [], purchases: [], snapshots: [] };
+
+export function loadInvestments() {
+  try {
+    const raw = localStorage.getItem(KEY_INVESTMENTS);
+    const obj = raw ? JSON.parse(raw) : null;
+    if (!obj || typeof obj !== "object") return DEFAULT_INVESTMENTS;
+    return {
+      accounts: Array.isArray(obj.accounts) ? obj.accounts : [],
+      purchases: Array.isArray(obj.purchases) ? obj.purchases : [],
+      snapshots: Array.isArray(obj.snapshots) ? obj.snapshots : [],
+    };
+  } catch {
+    return DEFAULT_INVESTMENTS;
+  }
+}
+
+export function saveInvestments(data) {
+  try {
+    localStorage.setItem(KEY_INVESTMENTS, JSON.stringify(data || DEFAULT_INVESTMENTS));
+  } catch {}
+}
+

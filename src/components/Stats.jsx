@@ -109,6 +109,7 @@ export default function Stats({
   setScrollTarget = () => {},
   scrollTarget = null,
   onScrollDone = () => {},
+  investments = null,
 }) {
   // Filtres par défaut
   const defaultFilters = {
@@ -750,15 +751,35 @@ const subcatData = useMemo(() => {
 
   // ── Solde par banque et par type de compte ──────────────────────────────────
   // Utilise statsFilteredDateOnly (pas affecté par les filtres banque/type)
+  // Pour les comptes d'investissement avec snapshot : on remplace le solde
+  // calculé par transactions par la valeur du dernier snapshot.
   const { soldeByBank, soldeByType } = useMemo(() => {
+    // Construire la map snapshot par "bank||accountType"
+    const snapshotByKey = new Map(); // "bank||accountType" -> valeur dernière snapshot
+    if (investments?.accounts?.length) {
+      for (const acc of investments.accounts) {
+        const key = `${acc.bank}||${acc.accountType}`;
+        const accSnapshots = (investments.snapshots || [])
+          .filter(s => s.accountId === acc.id)
+          .sort((a, b) => new Date(b.date) - new Date(a.date));
+        const latest = accSnapshots[0];
+        if (!latest) continue;
+        const value = latest.mode === "global"
+          ? Number(latest.value || 0)
+          : Object.values(latest.values || {}).reduce((s, v) => s + Number(v || 0), 0);
+        snapshotByKey.set(key, value);
+      }
+    }
+
     const byBank = new Map();
     const byType = new Map();
 
     for (const e of statsFilteredDateOnly) {
-      // On utilise toujours la devise du COMPTE (accountCurrencies), pas e.currency
-      // qui est la devise de la transaction (peut être EUR sur un compte CHF)
+      const acctKey = `${String(e.bank || "Physique").trim()}||${String(e.accountType || "Compte courant").trim()}`;
+      // Ignorer les transactions des comptes couverts par un snapshot
+      if (snapshotByKey.has(acctKey)) continue;
+
       const currency = getAccountCurrency(accountCurrencies, e.bank, e.accountType);
-      // Toujours convertir au taux actuel pour cohérence avec l'historique
       const amountEUR = toEUR(Number(e.amount || 0), currency, exchangeRates);
       const signed = (e.kind === "income" || e.kind === "reimbursement" || e.kind === "transfer_in")
         ? amountEUR : -amountEUR;
@@ -768,6 +789,13 @@ const subcatData = useMemo(() => {
 
       byBank.set(bankKey, (byBank.get(bankKey) || 0) + signed);
       byType.set(typeKey, (byType.get(typeKey) || 0) + signed);
+    }
+
+    // Ajouter les valeurs snapshot pour les comptes investissement
+    for (const [acctKey, value] of snapshotByKey.entries()) {
+      const [bank, accountType] = acctKey.split("||");
+      byBank.set(bank, (byBank.get(bank) || 0) + value);
+      byType.set(accountType, (byType.get(accountType) || 0) + value);
     }
 
     // Palette fixe pour banques / types (indépendante de categoryColors)
@@ -791,7 +819,7 @@ const subcatData = useMemo(() => {
         .sort((a, b) => b.absValue - a.absValue);
 
     return { soldeByBank: toSlices(byBank), soldeByType: toSlices(byType) };
-  }, [statsFilteredDateOnly, accountCurrencies, exchangeRates]);
+  }, [statsFilteredDateOnly, accountCurrencies, exchangeRates, investments]);
 
 
   return (
