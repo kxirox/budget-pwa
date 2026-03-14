@@ -100,6 +100,11 @@ export default function Investments({ investments, onSave, banks = [], accountTy
   const [purDate, setPurDate] = useState(new Date().toISOString().slice(0, 10));
   const [purAmount, setPurAmount] = useState("");
   const [purNote, setPurNote] = useState("");
+  const [purFees, setPurFees] = useState("");
+  const [purShares, setPurShares] = useState("");
+  const [purPricePerShare, setPurPricePerShare] = useState("");
+  const [purAnnualFeesPct, setPurAnnualFeesPct] = useState("");
+  const [purShowDetails, setPurShowDetails] = useState(false);
 
   // ── Computed stats per account ──
   const accountStats = useMemo(() => {
@@ -154,6 +159,11 @@ export default function Investments({ investments, onSave, banks = [], accountTy
     setPurDate(new Date().toISOString().slice(0, 10));
     setPurAmount("");
     setPurNote("");
+    setPurFees("");
+    setPurShares("");
+    setPurPricePerShare("");
+    setPurAnnualFeesPct("");
+    setPurShowDetails(false);
     setShowPurchaseModal(accountId);
   }
 
@@ -198,6 +208,10 @@ export default function Investments({ investments, onSave, banks = [], accountTy
       date: purDate,
       amount: Number(purAmount),
       note: purNote.trim(),
+      ...(purFees          ? { fees: Number(purFees) }               : {}),
+      ...(purShares        ? { shares: Number(purShares) }           : {}),
+      ...(purPricePerShare ? { pricePerShare: Number(purPricePerShare) } : {}),
+      ...(purAnnualFeesPct ? { annualFeesPct: Number(purAnnualFeesPct) } : {}),
     };
     onSave({ ...investments, purchases: [...purchases, newPurchase] });
     setShowPurchaseModal(null);
@@ -414,17 +428,30 @@ export default function Investments({ investments, onSave, banks = [], accountTy
                       .slice(0, 20)
                       .map(p => {
                         const line = acc.lines?.find(l => l.id === p.lineId);
+                        const hasDetails = p.shares || p.fees || p.annualFeesPct;
                         return (
-                          <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, padding: "6px 10px", background: "#f9f6f0", borderRadius: 8, gap: 8 }}>
-                            <span style={{ color: "#6b7280", flexShrink: 0 }}>{fmtDate(p.date)}</span>
-                            <span style={{ color: "#374151", flex: 1 }}>{line ? line.name : (p.note || "Achat général")}</span>
-                            <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
-                              <span style={{ fontWeight: 700 }}>{fmt(Number(p.amount))}</span>
-                              <button
-                                onClick={() => setDeleteConfirm({ type: "purchase", id: p.id })}
-                                style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: 12, padding: 0 }}
-                              >✕</button>
+                          <div key={p.id} style={{ fontSize: 13, padding: "6px 10px", background: "#f9f6f0", borderRadius: 8 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                              <span style={{ color: "#6b7280", flexShrink: 0 }}>{fmtDate(p.date)}</span>
+                              <span style={{ color: "#374151", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                {line ? line.name : (p.note || "Achat général")}
+                              </span>
+                              <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
+                                <span style={{ fontWeight: 700 }}>{fmt(Number(p.amount))}</span>
+                                <button
+                                  onClick={() => setDeleteConfirm({ type: "purchase", id: p.id })}
+                                  style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: 12, padding: 0 }}
+                                >✕</button>
+                              </div>
                             </div>
+                            {hasDetails && (
+                              <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>
+                                {p.shares && p.pricePerShare ? `${p.shares} parts × ${fmt(p.pricePerShare)}` : ""}
+                                {p.fees ? ` · Frais : ${fmt(p.fees)}` : ""}
+                                {p.annualFeesPct ? ` · Gestion : ${p.annualFeesPct} %/an` : ""}
+                                {p.note && line ? ` · ${p.note}` : ""}
+                              </div>
+                            )}
                           </div>
                         );
                       })}
@@ -592,13 +619,76 @@ export default function Investments({ investments, onSave, banks = [], accountTy
                   </label>
                 )}
                 <label style={styles.label}>
-                  Montant investi (€)
+                  Montant total déboursé (€)
                   <input
-                    type="number" inputMode="decimal" placeholder="ex: 200"
+                    type="number" inputMode="decimal" placeholder="ex: 217.80"
                     value={purAmount} onChange={e => setPurAmount(e.target.value)}
                     style={styles.input}
                   />
                 </label>
+
+                {/* Section détails repliable */}
+                <button
+                  type="button"
+                  onClick={() => setPurShowDetails(v => !v)}
+                  style={{ ...styles.btnSecondary, textAlign: "left", fontSize: 13, padding: "8px 12px" }}
+                >
+                  {purShowDetails ? "▲" : "▼"} Détails (nb parts, frais…)
+                </button>
+
+                {purShowDetails && (
+                  <>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                      <label style={styles.label}>
+                        Nb de parts
+                        <input
+                          type="number" inputMode="decimal" placeholder="ex: 3"
+                          value={purShares}
+                          onChange={e => {
+                            setPurShares(e.target.value);
+                            const s = Number(e.target.value);
+                            const p = Number(purPricePerShare);
+                            if (s > 0 && p > 0) setPurAmount(String(Math.round(s * p * 100) / 100));
+                          }}
+                          style={styles.input}
+                        />
+                      </label>
+                      <label style={styles.label}>
+                        Prix / part (€)
+                        <input
+                          type="number" inputMode="decimal" placeholder="ex: 72.60"
+                          value={purPricePerShare}
+                          onChange={e => {
+                            setPurPricePerShare(e.target.value);
+                            const s = Number(purShares);
+                            const p = Number(e.target.value);
+                            if (s > 0 && p > 0) setPurAmount(String(Math.round(s * p * 100) / 100));
+                          }}
+                          style={styles.input}
+                        />
+                      </label>
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                      <label style={styles.label}>
+                        Frais d'achat (€)
+                        <input
+                          type="number" inputMode="decimal" placeholder="ex: 1.00"
+                          value={purFees} onChange={e => setPurFees(e.target.value)}
+                          style={styles.input}
+                        />
+                      </label>
+                      <label style={styles.label}>
+                        Frais de gestion/an (%)
+                        <input
+                          type="number" inputMode="decimal" placeholder="ex: 0.20"
+                          value={purAnnualFeesPct} onChange={e => setPurAnnualFeesPct(e.target.value)}
+                          style={styles.input}
+                        />
+                      </label>
+                    </div>
+                  </>
+                )}
+
                 <label style={styles.label}>
                   Note (optionnel)
                   <input
