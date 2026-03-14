@@ -585,7 +585,7 @@ export default function Investments({ investments, onSave, banks = [], accountTy
                 {acc.lines?.length > 0 && (
                   <label style={styles.label}>
                     Ligne / Actif
-                    <select value={purLineId} onChange={e => setPurLineId(e.target.value)} style={styles.input}>
+                    <select value={purLineId} onChange={e => setPurLineId(e.target.value)} style={{ ...styles.input, width: "100%", boxSizing: "border-box" }}>
                       <option value="">— Général (sans ligne) —</option>
                       {acc.lines.map(l => <option key={l.id} value={l.id}>{l.name} ({l.type})</option>)}
                     </select>
@@ -745,6 +745,8 @@ const styles = {
     padding: 20,
     maxHeight: "90vh",
     overflowY: "auto",
+    overflowX: "hidden",
+    boxSizing: "border-box",
   },
   backdrop: {
     position: "fixed",
@@ -770,6 +772,8 @@ const styles = {
     fontSize: 15,
     outline: "none",
     background: "white",
+    width: "100%",
+    boxSizing: "border-box",
   },
   btnPrimary: {
     padding: "11px 16px",
