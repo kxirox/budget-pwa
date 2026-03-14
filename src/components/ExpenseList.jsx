@@ -8,7 +8,7 @@ import { getAccountCurrency, toEUR } from "../storage";
 // import ImportCreditMutuel from "./ImportCreditMutuel";
 
 
-export default function ExpenseList({ expenses, categories, subcategoriesMap = {}, categoryColors = {}, banks, accountTypes, people = [], onDelete, onUpdate, onImport, onCreateReimbursement, onOpenWipeModal, accountCurrencies = {}, exchangeRates = {}, setExchangeRates, previousTab = null, onBack = () => {} }) {
+export default function ExpenseList({ expenses, categories, subcategoriesMap = {}, categoryColors = {}, banks, accountTypes, people = [], onDelete, onUpdate, onImport, onCreateReimbursement, onOpenWipeModal, accountCurrencies = {}, exchangeRates = {}, setExchangeRates, previousTab = null, onBack = () => {}, onAddCategory, onAddSubcategory }) {
   // Filtres par défaut
   const defaultFilters = {
     month: "ALL",
@@ -539,6 +539,24 @@ const totals = useMemo(() => {
 
   function closeEdit() {
     setEditingId(null);
+  }
+
+  // ── Modale "Ajouter catégorie / sous-catégorie" depuis l'édition ──
+  const [editQuickAdd, setEditQuickAdd] = useState(null); // { field: "category"|"subcategory", value: "" }
+
+  function confirmEditQuickAdd() {
+    if (!editQuickAdd) return;
+    const name = editQuickAdd.value.trim();
+    if (!name) return;
+    if (editQuickAdd.field === "category") {
+      onAddCategory?.(name);
+      setEditCategory(name);
+    }
+    if (editQuickAdd.field === "subcategory") {
+      onAddSubcategory?.(editCategory, name);
+      setEditSubcategory(name);
+    }
+    setEditQuickAdd(null);
   }
 
   function openReimbModal(expense) {
@@ -1485,8 +1503,16 @@ const renderItem = useCallback((e) => {
 
               <label style={styles.label}>
                 Catégorie
-                <select value={editCategory} onChange={(e) => setEditCategory(e.target.value)} style={styles.input}>
+                <select
+                  value={editCategory}
+                  onChange={(e) => {
+                    if (e.target.value === "__add_new__") setEditQuickAdd({ field: "category", value: "" });
+                    else setEditCategory(e.target.value);
+                  }}
+                  style={styles.input}
+                >
                   {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                  <option value="__add_new__">➕ Nouvelle catégorie…</option>
                 </select>
               </label>
 
@@ -1494,7 +1520,10 @@ const renderItem = useCallback((e) => {
                 Sous-catégorie (optionnel)
                 <select
                   value={editSubcategory}
-                  onChange={(e) => setEditSubcategory(e.target.value)}
+                  onChange={(e) => {
+                    if (e.target.value === "__add_new__") setEditQuickAdd({ field: "subcategory", value: "" });
+                    else setEditSubcategory(e.target.value);
+                  }}
                   style={styles.input}
                 >
                   <option value="">—</option>
@@ -1503,6 +1532,7 @@ const renderItem = useCallback((e) => {
                       {sc}
                     </option>
                   ))}
+                  <option value="__add_new__">➕ Nouvelle sous-catégorie…</option>
                 </select>
               </label>
 
@@ -1565,6 +1595,50 @@ const renderItem = useCallback((e) => {
               <div style={{ color: "#6b7280", fontSize: 12, lineHeight: 1.4 }}>
                 Astuce : tu peux corriger les anciennes dépenses en changeant Banque/Type ici.
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modale ajout catégorie / sous-catégorie depuis l'édition ── */}
+      {editQuickAdd && (
+        <div style={{
+          position: "fixed", inset: 0,
+          background: "rgba(0,0,0,0.4)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          padding: 16, zIndex: 10000,
+        }}>
+          <div style={{
+            width: "100%", maxWidth: 360,
+            background: "#fdfaf5", borderRadius: 18,
+            border: "1px solid #e8dfc8", padding: 20,
+            display: "grid", gap: 14,
+          }}>
+            <h3 style={{ margin: 0, fontSize: 17 }}>
+              {editQuickAdd.field === "category" ? "Nouvelle catégorie" : `Nouvelle sous-catégorie (${editCategory})`}
+            </h3>
+            <input
+              autoFocus
+              placeholder="Nom…"
+              value={editQuickAdd.value}
+              onChange={(e) => setEditQuickAdd(q => ({ ...q, value: e.target.value }))}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); confirmEditQuickAdd(); } }}
+              style={{ padding: "12px", borderRadius: 12, border: "1px solid #d1d5db", fontSize: 16, outline: "none" }}
+            />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <button
+                onClick={() => setEditQuickAdd(null)}
+                style={{ padding: "11px", borderRadius: 12, border: "1px solid #e5e7eb", background: "white", fontWeight: 700, fontSize: 14, cursor: "pointer" }}
+              >
+                Annuler
+              </button>
+              <button
+                onClick={confirmEditQuickAdd}
+                disabled={!editQuickAdd.value.trim()}
+                style={{ padding: "11px", borderRadius: 12, border: "none", background: editQuickAdd.value.trim() ? "#111827" : "#d1d5db", color: "white", fontWeight: 800, fontSize: 14, cursor: editQuickAdd.value.trim() ? "pointer" : "not-allowed" }}
+              >
+                Ajouter
+              </button>
             </div>
           </div>
         </div>

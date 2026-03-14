@@ -1027,6 +1027,11 @@ function updateExpense(id, patch) {
           onBack={() => { setTab(previousTab); setPreviousTab(null); }}
           scrollTarget={scrollTarget}
           onScrollDone={() => setScrollTarget(null)}
+          onAddCategory={(name) => setCategories(prev => [...prev, name])}
+          onAddSubcategory={(cat, name) => setSubcategoriesMap(prev => ({
+            ...prev,
+            [cat]: [...(prev[cat] || []), name]
+          }))}
         />
       )}
 
