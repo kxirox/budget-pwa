@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import {
   LineChart, Line, XAxis, YAxis, Tooltip,
   ResponsiveContainer, CartesianGrid, Legend,
@@ -96,6 +96,14 @@ function PieCard({ title, data }) {
 
 // ── Composant principal ───────────────────────────────────────────────────────
 
+const RANGE_OPTIONS = [
+  { label: "6 mois", months: 6 },
+  { label: "1 an",   months: 12 },
+  { label: "3 ans",  months: 36 },
+  { label: "5 ans",  months: 60 },
+  { label: "Tout",   months: null },
+];
+
 export default function Patrimoine({
   expenses = [],
   investments = { accounts: [], purchases: [], snapshots: [] },
@@ -104,6 +112,7 @@ export default function Patrimoine({
   accountContribRates = {},
 }) {
   const { accounts = [], purchases = [], snapshots = [] } = investments;
+  const [chartRange, setChartRange] = useState(null); // null = Tout
 
   // ── 1. Soldes courants & livrets (depuis transactions) ──
   const { soldeCourants, soldeLivrets, soldeByBank, soldeByType } = useMemo(() => {
@@ -279,6 +288,7 @@ export default function Patrimoine({
       const total = comptesBal + investBal;
       return {
         date: month.slice(0, 7),
+        rawDate: month.slice(0, 7), // pour le filtrage par période
         "Fortune totale": Math.round(total * 100) / 100,
         "dont Investissements": Math.round(investBal * 100) / 100,
       };
@@ -441,12 +451,47 @@ export default function Patrimoine({
       )}
 
       {/* Courbe d'évolution */}
-      {evolutionData.length >= 2 && (
+      {evolutionData.length >= 2 && (() => {
+        // Filtrage selon la période sélectionnée
+        const filtered = chartRange
+          ? (() => {
+              const cutoff = new Date();
+              cutoff.setMonth(cutoff.getMonth() - chartRange);
+              const cutoffStr = cutoff.toISOString().slice(0, 7); // "YYYY-MM"
+              return evolutionData.filter(d => d.rawDate >= cutoffStr);
+            })()
+          : evolutionData;
+        const displayData = filtered.length >= 2 ? filtered : evolutionData;
+        return (
         <div style={styles.card}>
-          <div style={styles.sectionTitle}>📈 Évolution du patrimoine</div>
+          {/* Titre + boutons période */}
+          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginBottom: 10 }}>
+            <div style={styles.sectionTitle}>📈 Évolution du patrimoine</div>
+            <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+              {RANGE_OPTIONS.map(opt => {
+                const active = chartRange === opt.months;
+                return (
+                  <button
+                    key={opt.label}
+                    onClick={() => setChartRange(opt.months)}
+                    style={{
+                      padding: "3px 10px",
+                      borderRadius: 20,
+                      border: "1px solid " + (active ? "#1d4ed8" : "#d1c9b8"),
+                      background: active ? "#1d4ed8" : "#f9f6f0",
+                      color: active ? "#fff" : "#374151",
+                      fontSize: 12,
+                      fontWeight: active ? 700 : 400,
+                      cursor: "pointer",
+                    }}
+                  >{opt.label}</button>
+                );
+              })}
+            </div>
+          </div>
           <div style={{ height: 220 }}>
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={evolutionData} margin={{ top: 4, right: 4, left: 0, bottom: 4 }}>
+              <LineChart data={displayData} margin={{ top: 4, right: 4, left: 0, bottom: 4 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0e9d8" />
                 <XAxis dataKey="date" tick={{ fontSize: 10 }} />
                 <YAxis tick={{ fontSize: 10 }} tickFormatter={v => fmtK(v).replace(" €", "")} width={50} />
@@ -458,7 +503,8 @@ export default function Patrimoine({
             </ResponsiveContainer>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* Camemberts */}
       <PieCard title="🏦 Répartition par banque" data={soldeByBank} />
