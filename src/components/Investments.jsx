@@ -3,6 +3,7 @@ import { uid } from "../storage.js";
 import {
   LineChart, Line, XAxis, YAxis, Tooltip,
   ResponsiveContainer, CartesianGrid, Legend,
+  PieChart, Pie, Cell,
 } from "recharts";
 
 const LINE_TYPE_SUGGESTIONS = ["ETF", "Action", "Obligation", "SCPI", "Or", "Crypto", "Immobilier", "Autre"];
@@ -145,7 +146,51 @@ export default function Investments({ investments, onSave, banks = [], accountTy
         };
       });
 
-      return { ...acc, latest, latestValue, totalInvested, perf, chartData, accSnapshots, accPurchases };
+      // Camembert: répartition par ligne d'actif
+      // Priorité : dernier snapshot "par ligne" → sinon capital investi par ligne
+      const latestLinesSnap = accSnapshots.find(s => s.mode === "lines");
+      let pieData = [];
+      if (latestLinesSnap && acc.lines?.length > 0) {
+        pieData = (acc.lines || [])
+          .map(l => ({ name: l.name, value: Math.round(Number(latestLinesSnap.values?.[l.id] || 0) * 100) / 100 }))
+          .filter(d => d.value > 0);
+      } else if (acc.lines?.length > 0) {
+        // fallback : capital investi par ligne
+        pieData = (acc.lines || []).map(l => ({
+          name: l.name,
+          value: Math.round(accPurchases.filter(p => p.lineId === l.id).reduce((s, p) => s + Number(p.amount || 0), 0) * 100) / 100,
+        })).filter(d => d.value > 0);
+      }
+
+      return { ...acc, latest, latestValue, totalInvested, perf, chartData, pieData, accSnapshots, accPurchases };
+    });
+  }, [accounts, purchases, snapshots]);
+
+  // ── Graphique global : évolution du portefeuille total ──
+  const globalChartData = useMemo(() => {
+    if (accounts.length === 0 || snapshots.length === 0) return [];
+
+    // Toutes les dates de snapshot distinctes, triées
+    const allDates = [...new Set(snapshots.map(s => s.date))].sort();
+
+    return allDates.map(date => {
+      // Pour chaque compte, prendre la valeur du snapshot le plus récent ≤ date
+      let totalValue = 0;
+      let totalInv = 0;
+      accounts.forEach(acc => {
+        const accSnaps = snapshots
+          .filter(s => s.accountId === acc.id && s.date <= date)
+          .sort((a, b) => new Date(b.date) - new Date(a.date));
+        if (accSnaps.length > 0) totalValue += getSnapshotTotal(accSnaps[0]);
+
+        const accPurch = purchases.filter(p => p.accountId === acc.id && p.date <= date);
+        totalInv += accPurch.reduce((s, p) => s + Number(p.amount || 0), 0);
+      });
+      return {
+        date: fmtDate(date),
+        "Valeur totale": Math.round(totalValue * 100) / 100,
+        "Capital investi": Math.round(totalInv * 100) / 100,
+      };
     });
   }, [accounts, purchases, snapshots]);
 
@@ -366,6 +411,26 @@ export default function Investments({ investments, onSave, banks = [], accountTy
         <button onClick={openAccountModal} style={styles.btnPrimary}>+ Compte</button>
       </div>
 
+      {/* ── Graphique global ── */}
+      {globalChartData.length >= 2 && (
+        <div style={styles.card}>
+          <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>📈 Évolution du portefeuille</div>
+          <div style={{ height: 220 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={globalChartData} margin={{ top: 4, right: 4, left: 0, bottom: 4 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0e9d8" />
+                <XAxis dataKey="date" tick={{ fontSize: 10 }} />
+                <YAxis tick={{ fontSize: 10 }} tickFormatter={v => v + "€"} width={55} />
+                <Tooltip formatter={v => fmt(v)} />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Line type="monotone" dataKey="Valeur totale" stroke="#2563eb" strokeWidth={2} dot />
+                <Line type="monotone" dataKey="Capital investi" stroke="#9ca3af" strokeWidth={1} strokeDasharray="4 4" dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+
       {/* Empty state */}
       {accounts.length === 0 && (
         <div style={{ ...styles.card, textAlign: "center", padding: 32, color: "#6b7280" }}>
@@ -467,6 +532,47 @@ export default function Investments({ investments, onSave, banks = [], accountTy
                   </ResponsiveContainer>
                 </div>
               )}
+
+              {/* Camembert répartition par ligne */}
+              {acc.pieData?.length >= 2 && (() => {
+                const PIE_COLORS = ["#2563eb","#16a34a","#dc2626","#d97706","#7c3aed","#0891b2","#be185d","#65a30d"];
+                const total = acc.pieData.reduce((s, d) => s + d.value, 0);
+                return (
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6 }}>
+                      Répartition par ligne
+                      {acc.latestLinesSnap == null && (
+                        <span style={{ fontWeight: 400, color: "#9ca3af", fontSize: 11, marginLeft: 6 }}>
+                          (basé sur les achats)
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center" }}>
+                      <div style={{ width: 160, height: 160, flexShrink: 0 }}>
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie data={acc.pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={70} innerRadius={30}>
+                              {acc.pieData.map((_, i) => (
+                                <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                              ))}
+                            </Pie>
+                            <Tooltip formatter={v => fmt(v)} />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </div>
+                      <div style={{ display: "grid", gap: 5, flex: 1, minWidth: 120 }}>
+                        {acc.pieData.map((d, i) => (
+                          <div key={d.name} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}>
+                            <div style={{ width: 10, height: 10, borderRadius: 2, background: PIE_COLORS[i % PIE_COLORS.length], flexShrink: 0 }} />
+                            <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#374151" }}>{d.name}</span>
+                            <span style={{ color: "#6b7280", flexShrink: 0 }}>{total > 0 ? Math.round(d.value / total * 100) : 0} %</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Lignes d'actifs — détails */}
               {acc.lines?.some(l => l.exchange || l.replication) && (
