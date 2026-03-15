@@ -323,7 +323,42 @@ export default function Investments({ investments, onSave, banks = [], accountTy
     const globalPerf = totalLatestValue - totalCost;
     const globalPerfPct = (globalPerf / totalCost) * 100;
 
-    return { totalLatestValue, totalCost, globalPerf, globalPerfPct, annualizedReturn, xirrRate, holdingYears };
+    // ── TWR global : chaîne de sous-périodes sur toutes les dates de snapshots ──
+    // Pour chaque date de snapshot, on calcule la valeur totale du portefeuille
+    // en prenant le dernier snapshot connu de chaque compte à cette date.
+    const allSnapDates = [...new Set(snapshots.map(s => s.date))].sort();
+    let globalTWR = null;
+    if (allSnapDates.length >= 2) {
+      // Fonction : valeur totale du portefeuille à une date donnée
+      const portfolioValueAt = (date) => {
+        let total = 0;
+        accounts.forEach(acc => {
+          const latest = snapshots
+            .filter(s => s.accountId === acc.id && s.date <= date)
+            .sort((a, b) => b.date.localeCompare(a.date))[0];
+          if (latest) total += getSnapshotTotal(latest);
+        });
+        return total;
+      };
+
+      let twr = 1;
+      for (let i = 1; i < allSnapDates.length; i++) {
+        const startDate = allSnapDates[i - 1];
+        const endDate   = allSnapDates[i];
+        const startVal  = portfolioValueAt(startDate);
+        const endVal    = portfolioValueAt(endDate);
+        // Achats (tous comptes) entre les deux dates
+        const flows = purchases
+          .filter(p => p.date > startDate && p.date <= endDate)
+          .reduce((s, p) => s + Number(p.amount || 0) + Number(p.fees || 0), 0);
+        const denom = startVal + flows;
+        if (denom <= 0) continue;
+        twr *= (endVal / denom);
+      }
+      globalTWR = twr - 1;
+    }
+
+    return { totalLatestValue, totalCost, globalPerf, globalPerfPct, annualizedReturn, xirrRate, holdingYears, globalTWR };
   }, [accounts, purchases, snapshots]);
 
   // ── Camembert global par type d'actif ──
@@ -684,6 +719,15 @@ export default function Investments({ investments, onSave, banks = [], accountTy
                       {fmtRate(globalMetrics.xirrRate)}
                     </div>
                     <div style={{ fontSize: 9, color: "#9ca3af" }}>taux interne annualisé</div>
+                  </div>
+                )}
+                {globalMetrics.globalTWR !== null && (
+                  <div style={styles.statBox}>
+                    <div style={{ fontSize: 11, color: "#6b7280" }}>TWR global <span style={{ color: "#d97706" }}>≈</span></div>
+                    <div style={{ fontWeight: 700, fontSize: 13, color: globalMetrics.globalTWR >= 0 ? "#16a34a" : "#ef4444" }}>
+                      {fmtTWR(globalMetrics.globalTWR)}
+                    </div>
+                    <div style={{ fontSize: 9, color: "#9ca3af" }}>approx. (snapshots)</div>
                   </div>
                 )}
               </div>
