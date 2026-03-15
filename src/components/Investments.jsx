@@ -108,6 +108,7 @@ export default function Investments({ investments, onSave, banks = [], accountTy
   const [purShowAddLine, setPurShowAddLine] = useState(false);
   const [purNewLineName, setPurNewLineName] = useState("");
   const [purNewLineType, setPurNewLineType] = useState("ETF");
+  const [purEditId, setPurEditId] = useState(null); // null = nouveau, id = édition
 
   // ── Computed stats per account ──
   const accountStats = useMemo(() => {
@@ -170,7 +171,25 @@ export default function Investments({ investments, onSave, banks = [], accountTy
     setPurShowAddLine(false);
     setPurNewLineName("");
     setPurNewLineType("ETF");
+    setPurEditId(null);
     setShowPurchaseModal(accountId);
+  }
+
+  function openEditPurchaseModal(purchase) {
+    setPurLineId(purchase.lineId || "");
+    setPurDate(purchase.date);
+    setPurAmount(String(purchase.amount));
+    setPurNote(purchase.note || "");
+    setPurFees(purchase.fees != null ? String(purchase.fees) : "");
+    setPurShares(purchase.shares != null ? String(purchase.shares) : "");
+    setPurPricePerShare(purchase.pricePerShare != null ? String(purchase.pricePerShare) : "");
+    setPurAnnualFeesPct(purchase.annualFeesPct != null ? String(purchase.annualFeesPct) : "");
+    setPurShowDetails(!!(purchase.fees || purchase.shares || purchase.pricePerShare || purchase.annualFeesPct));
+    setPurShowAddLine(false);
+    setPurNewLineName("");
+    setPurNewLineType("ETF");
+    setPurEditId(purchase.id);
+    setShowPurchaseModal(purchase.accountId);
   }
 
   function openAccountModal() {
@@ -207,8 +226,7 @@ export default function Investments({ investments, onSave, banks = [], accountTy
 
   function savePurchase() {
     if (!showPurchaseModal || !purDate || !purAmount) return;
-    const newPurchase = {
-      id: uid(),
+    const purchaseData = {
       accountId: showPurchaseModal,
       lineId: purLineId || null,
       date: purDate,
@@ -219,7 +237,15 @@ export default function Investments({ investments, onSave, banks = [], accountTy
       ...(purPricePerShare ? { pricePerShare: Number(purPricePerShare) } : {}),
       ...(purAnnualFeesPct ? { annualFeesPct: Number(purAnnualFeesPct) } : {}),
     };
-    onSave({ ...investments, purchases: [...purchases, newPurchase] });
+    if (purEditId) {
+      // Mise à jour d'un achat existant
+      const updatedPurchases = purchases.map(p =>
+        p.id === purEditId ? { ...purchaseData, id: purEditId } : p
+      );
+      onSave({ ...investments, purchases: updatedPurchases });
+    } else {
+      onSave({ ...investments, purchases: [...purchases, { id: uid(), ...purchaseData }] });
+    }
     setShowPurchaseModal(null);
   }
 
@@ -458,6 +484,11 @@ export default function Investments({ investments, onSave, banks = [], accountTy
                               <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
                                 <span style={{ fontWeight: 700 }}>{fmt(Number(p.amount))}</span>
                                 <button
+                                  onClick={() => openEditPurchaseModal(p)}
+                                  style={{ background: "none", border: "none", color: "#6b7280", cursor: "pointer", fontSize: 12, padding: 0 }}
+                                  title="Modifier"
+                                >✏️</button>
+                                <button
                                   onClick={() => setDeleteConfirm({ type: "purchase", id: p.id })}
                                   style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: 12, padding: 0 }}
                                 >✕</button>
@@ -619,7 +650,7 @@ export default function Investments({ investments, onSave, banks = [], accountTy
           <div style={styles.backdrop} onClick={() => setShowPurchaseModal(null)}>
             <div style={styles.modal} onClick={e => e.stopPropagation()}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                <h3 style={{ margin: 0 }}>💶 Nouvel achat</h3>
+                <h3 style={{ margin: 0 }}>{purEditId ? "✏️ Modifier l'achat" : "💶 Nouvel achat"}</h3>
                 <button onClick={() => setShowPurchaseModal(null)} style={styles.btnX}>✕</button>
               </div>
               <div style={{ color: "#6b7280", fontSize: 13, marginBottom: 12 }}>{acc.bank} — {acc.accountType}</div>
