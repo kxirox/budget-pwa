@@ -94,6 +94,8 @@ export default function Investments({ investments, onSave, banks = [], accountTy
   const [snapMode, setSnapMode] = useState("global");
   const [snapGlobalValue, setSnapGlobalValue] = useState("");
   const [snapLineValues, setSnapLineValues] = useState({});
+  const [snapLineMode, setSnapLineMode] = useState("total"); // "total" | "price"
+  const [snapLinePrices, setSnapLinePrices] = useState({});
 
   // ── Purchase form ──
   const [purLineId, setPurLineId] = useState("");
@@ -150,9 +152,12 @@ export default function Investments({ investments, onSave, banks = [], accountTy
     setSnapDate(new Date().toISOString().slice(0, 10));
     setSnapMode(acc.lines?.length > 0 ? "lines" : "global");
     setSnapGlobalValue("");
+    setSnapLineMode("total");
     const initValues = {};
-    (acc.lines || []).forEach(l => { initValues[l.id] = ""; });
+    const initPrices = {};
+    (acc.lines || []).forEach(l => { initValues[l.id] = ""; initPrices[l.id] = ""; });
     setSnapLineValues(initValues);
+    setSnapLinePrices(initPrices);
     setShowSnapshotModal(accountId);
   }
 
@@ -217,7 +222,17 @@ export default function Investments({ investments, onSave, banks = [], accountTy
       newSnapshot = { id: uid(), accountId: acc.id, date: snapDate, mode: "global", value: Number(snapGlobalValue) };
     } else {
       const values = {};
-      (acc.lines || []).forEach(l => { values[l.id] = Number(snapLineValues[l.id] || 0); });
+      (acc.lines || []).forEach(l => {
+        if (snapLineMode === "price") {
+          const price = Number(snapLinePrices[l.id] || 0);
+          const totalShares = purchases
+            .filter(p => p.accountId === acc.id && p.lineId === l.id && p.shares)
+            .reduce((sum, p) => sum + Number(p.shares), 0);
+          values[l.id] = price * totalShares;
+        } else {
+          values[l.id] = Number(snapLineValues[l.id] || 0);
+        }
+      });
       newSnapshot = { id: uid(), accountId: acc.id, date: snapDate, mode: "lines", values };
     }
     onSave({ ...investments, snapshots: [...snapshots, newSnapshot] });
@@ -576,9 +591,23 @@ export default function Investments({ investments, onSave, banks = [], accountTy
         const acc = accounts.find(a => a.id === showSnapshotModal);
         if (!acc) return null;
         const hasLines = acc.lines?.length > 0;
+
+        // Calcul des parts par ligne (depuis les achats)
+        const sharesByLine = {};
+        (acc.lines || []).forEach(l => {
+          sharesByLine[l.id] = purchases
+            .filter(p => p.accountId === acc.id && p.lineId === l.id && p.shares)
+            .reduce((sum, p) => sum + Number(p.shares), 0);
+        });
+
         const canSave = snapDate && (
-          snapMode === "global" ? !!snapGlobalValue : Object.values(snapLineValues).some(v => !!v)
+          snapMode === "global"
+            ? !!snapGlobalValue
+            : snapLineMode === "price"
+              ? Object.entries(snapLinePrices).some(([lid, v]) => !!v && sharesByLine[lid] > 0)
+              : Object.values(snapLineValues).some(v => !!v)
         );
+
         return (
           <div style={styles.backdrop} onClick={() => setShowSnapshotModal(null)}>
             <div style={styles.modal} onClick={e => e.stopPropagation()}>
@@ -592,6 +621,8 @@ export default function Investments({ investments, onSave, banks = [], accountTy
                   Date
                   <input type="date" value={snapDate} onChange={e => setSnapDate(e.target.value)} style={styles.input} />
                 </label>
+
+                {/* Toggle global / par ligne */}
                 {hasLines && (
                   <div style={{ display: "flex", gap: 8 }}>
                     {["global", "lines"].map(m => (
@@ -605,6 +636,7 @@ export default function Investments({ investments, onSave, banks = [], accountTy
                     ))}
                   </div>
                 )}
+
                 {snapMode === "global" ? (
                   <label style={styles.label}>
                     Valeur totale du compte (€)
@@ -615,20 +647,74 @@ export default function Investments({ investments, onSave, banks = [], accountTy
                     />
                   </label>
                 ) : (
-                  <div style={{ display: "grid", gap: 8 }}>
-                    {(acc.lines || []).map(l => (
-                      <label key={l.id} style={styles.label}>
-                        {l.name} ({l.type})
-                        <input
-                          type="number" inputMode="decimal" placeholder="Valeur en €"
-                          value={snapLineValues[l.id] || ""}
-                          onChange={e => setSnapLineValues(prev => ({ ...prev, [l.id]: e.target.value }))}
-                          style={styles.input}
-                        />
-                      </label>
-                    ))}
+                  <div style={{ display: "grid", gap: 10 }}>
+                    {/* Sous-toggle valeur totale / cours par action */}
+                    <div style={{ display: "flex", gap: 8 }}>
+                      {[["total", "💶 Valeur totale"], ["price", "📈 Cours par action"]].map(([m, label]) => (
+                        <button
+                          key={m}
+                          onClick={() => setSnapLineMode(m)}
+                          style={{ ...styles.btnSmall, flex: 1, fontSize: 12, background: snapLineMode === m ? "#374151" : "#e5e7eb", color: snapLineMode === m ? "white" : "#374151" }}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Champs par ligne */}
+                    {(acc.lines || []).map(l => {
+                      const totalShares = sharesByLine[l.id] || 0;
+                      const noShares = totalShares === 0;
+                      const unitPrice = Number(snapLinePrices[l.id] || 0);
+                      const computed = unitPrice * totalShares;
+
+                      if (snapLineMode === "price") {
+                        return (
+                          <div key={l.id} style={{ background: "#f9f6f0", borderRadius: 8, padding: "10px 12px" }}>
+                            <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 6 }}>{l.name} <span style={{ fontWeight: 400, color: "#6b7280" }}>({l.type})</span></div>
+                            {noShares ? (
+                              <div style={{ fontSize: 12, color: "#b45309", background: "#fef3c7", borderRadius: 6, padding: "6px 10px" }}>
+                                ⚠️ Aucun achat avec un nombre de parts renseigné pour cette ligne. Saisie impossible en mode "Cours par action".
+                              </div>
+                            ) : (
+                              <>
+                                <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 6 }}>
+                                  {totalShares} part{totalShares > 1 ? "s" : ""} détenue{totalShares > 1 ? "s" : ""}
+                                </div>
+                                <input
+                                  type="number" inputMode="decimal"
+                                  placeholder="Cours actuel (€/part)"
+                                  value={snapLinePrices[l.id] || ""}
+                                  onChange={e => setSnapLinePrices(prev => ({ ...prev, [l.id]: e.target.value }))}
+                                  style={styles.input}
+                                />
+                                {unitPrice > 0 && (
+                                  <div style={{ fontSize: 12, color: "#059669", marginTop: 6, fontWeight: 600 }}>
+                                    = {totalShares} × {unitPrice.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} € = <strong>{computed.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</strong>
+                                  </div>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        );
+                      }
+
+                      // Mode "valeur totale"
+                      return (
+                        <label key={l.id} style={styles.label}>
+                          {l.name} ({l.type})
+                          <input
+                            type="number" inputMode="decimal" placeholder="Valeur en €"
+                            value={snapLineValues[l.id] || ""}
+                            onChange={e => setSnapLineValues(prev => ({ ...prev, [l.id]: e.target.value }))}
+                            style={styles.input}
+                          />
+                        </label>
+                      );
+                    })}
                   </div>
                 )}
+
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 4 }}>
                   <button onClick={() => setShowSnapshotModal(null)} style={styles.btnSecondary}>Annuler</button>
                   <button onClick={saveSnapshot} disabled={!canSave} style={{ ...styles.btnPrimary, opacity: canSave ? 1 : 0.5 }}>
