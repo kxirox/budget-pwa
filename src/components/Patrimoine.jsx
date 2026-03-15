@@ -127,7 +127,7 @@ export default function Patrimoine({
       // Inclure tous les comptes non-investissement (pas de filtre sur le type)
       const livret  = isLivret(e.accountType);
       const bankKey = String(e.bank || "Physique").trim();
-      const sign = (e.kind === "income" || e.kind === "transfer_in") ? 1 : -1;
+      const sign = (e.kind === "income" || e.kind === "reimbursement" || e.kind === "transfer_in") ? 1 : -1;
       const net = sign * amountEUR * contrib;
 
       byBank[bankKey]  = (byBank[bankKey]  || 0) + net;
@@ -260,7 +260,7 @@ export default function Patrimoine({
         const currency  = getAccountCurrency(accountCurrencies, e.bank, e.accountType);
         const amountEUR = toEUR(Number(e.amount || 0), currency, exchangeRates);
         const contrib   = getContribRate(accountContribRates, e.bank, e.accountType);
-        const sign = (e.kind === "income" || e.kind === "transfer_in") ? 1 : -1;
+        const sign = (e.kind === "income" || e.kind === "reimbursement" || e.kind === "transfer_in") ? 1 : -1;
         comptesBal += sign * amountEUR * contrib;
       }
 
