@@ -641,6 +641,7 @@ function updateExpense(id, patch) {
         accountCurrencies,
         exchangeRates,
         accountContribRates,
+        investments,
       },
     };
   }
@@ -661,6 +662,7 @@ function updateExpense(id, patch) {
     if (d.accountCurrencies && typeof d.accountCurrencies === "object") setAccountCurrencies(d.accountCurrencies);
     if (d.exchangeRates && typeof d.exchangeRates === "object")         setExchangeRates(d.exchangeRates);
     if (d.accountContribRates && typeof d.accountContribRates === "object") setAccountContribRates(d.accountContribRates);
+    if (d.investments && typeof d.investments === "object") setInvestments(d.investments);
   }
 
   /**
