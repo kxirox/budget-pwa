@@ -320,7 +320,7 @@ export default function App() {
   // On écoute toutes les données qui doivent être sauvegardées
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [expenses, categories, banks, accountTypes, people, recurring,
-      categoryColors, subcategoriesMap, autoCatRules, forecastItems, forecastSettings]);
+      categoryColors, subcategoriesMap, autoCatRules, forecastItems, forecastSettings, investments]);
 
 
 
