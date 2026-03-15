@@ -24,9 +24,10 @@ function fmtPct(n) {
 
 const PIE_COLORS = ["#2563eb","#16a34a","#dc2626","#d97706","#7c3aed","#0891b2","#be185d","#65a30d","#0f766e","#b45309"];
 
-const ACCOUNT_TYPES_COURANT  = ["Compte courant", "Compte commun"];
-const ACCOUNT_TYPES_LIVRET   = ["Livret A", "Livret Orange"];
-const ACCOUNT_TYPES_INVEST   = ["PEA", "CTO"];
+// Détection dynamique : livret = accountType contient "livret" (insensible à la casse)
+function isLivret(accountType) {
+  return String(accountType || "").toLowerCase().includes("livret");
+}
 
 function getSnapshotTotal(s) {
   if (!s) return null;
@@ -123,17 +124,15 @@ export default function Patrimoine({
       const amountEUR = toEUR(Number(e.amount || 0), currency, exchangeRates);
       const contrib   = getContribRate(accountContribRates, e.bank, e.accountType);
 
-      const isCourant = ACCOUNT_TYPES_COURANT.includes(e.accountType);
-      const isLivret  = ACCOUNT_TYPES_LIVRET.includes(e.accountType);
-      if (!isCourant && !isLivret) continue;
-
+      // Inclure tous les comptes non-investissement (pas de filtre sur le type)
+      const livret  = isLivret(e.accountType);
       const bankKey = String(e.bank || "Physique").trim();
       const sign = (e.kind === "income" || e.kind === "transfer_in") ? 1 : -1;
       const net = sign * amountEUR * contrib;
 
       byBank[bankKey]  = (byBank[bankKey]  || 0) + net;
-      if (isCourant) byCourant.total += net;
-      if (isLivret)  byLivret.total  += net;
+      if (livret) byLivret.total  += net;
+      else        byCourant.total += net;
     }
 
     // Ajouter les comptes investissement (derniers snapshots) à soldeByBank
@@ -166,7 +165,7 @@ export default function Patrimoine({
 
     const typeMap = {};
     if (Math.abs(byCourant.total) > 0.01) typeMap["Comptes courants"] = Math.round(byCourant.total * 100) / 100;
-    if (Math.abs(byLivret.total)  > 0.01) typeMap["Livrets"]          = Math.round(byLivret.total  * 100) / 100;
+    if (Math.abs(byLivret.total)  > 0.01) typeMap["Livrets (épargne)"] = Math.round(byLivret.total * 100) / 100;
     if (soldeInvest               > 0.01) typeMap["Investissements"]  = Math.round(soldeInvest     * 100) / 100;
 
     return {
@@ -257,8 +256,7 @@ export default function Patrimoine({
         if (!e.date || e.date.slice(0, 7) > month) continue;
         const acctKey = `${String(e.bank || "").trim()}||${String(e.accountType || "").trim()}`;
         if (investKeys.has(acctKey)) continue;
-        const aType = e.accountType;
-        if (!ACCOUNT_TYPES_COURANT.includes(aType) && !ACCOUNT_TYPES_LIVRET.includes(aType)) continue;
+        // Inclure tous les comptes non-investissement
         const currency  = getAccountCurrency(accountCurrencies, e.bank, e.accountType);
         const amountEUR = toEUR(Number(e.amount || 0), currency, exchangeRates);
         const contrib   = getContribRate(accountContribRates, e.bank, e.accountType);
