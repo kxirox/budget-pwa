@@ -221,17 +221,36 @@ export default function Investments({ investments, onSave, banks = [], accountTy
       if (!snapGlobalValue) return;
       newSnapshot = { id: uid(), accountId: acc.id, date: snapDate, mode: "global", value: Number(snapGlobalValue) };
     } else {
+      // Snapshots précédents de ce compte, triés du plus récent au plus ancien
+      const prevSnapshots = snapshots
+        .filter(s => s.accountId === acc.id && s.date <= snapDate)
+        .sort((a, b) => new Date(b.date) - new Date(a.date));
+
+      // Cherche la dernière valeur connue d'une ligne dans les snapshots précédents
+      function lastKnownValue(lineId) {
+        for (const s of prevSnapshots) {
+          if (s.mode === "lines" && s.values?.[lineId] != null) return Number(s.values[lineId]);
+        }
+        return 0;
+      }
+
       const values = {};
       (acc.lines || []).forEach(l => {
+        let computedValue = null;
         if (snapLineMode === "price") {
           const price = Number(snapLinePrices[l.id] || 0);
-          const totalShares = purchases
-            .filter(p => p.accountId === acc.id && p.lineId === l.id && p.shares)
-            .reduce((sum, p) => sum + Number(p.shares), 0);
-          values[l.id] = price * totalShares;
+          if (price > 0) {
+            const totalShares = purchases
+              .filter(p => p.accountId === acc.id && p.lineId === l.id && p.shares)
+              .reduce((sum, p) => sum + Number(p.shares), 0);
+            computedValue = price * totalShares;
+          }
         } else {
-          values[l.id] = Number(snapLineValues[l.id] || 0);
+          const raw = Number(snapLineValues[l.id] || 0);
+          if (raw > 0) computedValue = raw;
         }
+        // Si la ligne est laissée vide → on récupère la dernière valeur connue
+        values[l.id] = computedValue !== null ? computedValue : lastKnownValue(l.id);
       });
       newSnapshot = { id: uid(), accountId: acc.id, date: snapDate, mode: "lines", values };
     }
@@ -600,6 +619,17 @@ export default function Investments({ investments, onSave, banks = [], accountTy
             .reduce((sum, p) => sum + Number(p.shares), 0);
         });
 
+        // Dernière valeur connue par ligne (pour affichage du report)
+        const prevSnapshots = snapshots
+          .filter(s => s.accountId === acc.id && s.date <= snapDate)
+          .sort((a, b) => new Date(b.date) - new Date(a.date));
+        const lastKnownValueForDisplay = (lineId) => {
+          for (const s of prevSnapshots) {
+            if (s.mode === "lines" && s.values?.[lineId] != null) return Number(s.values[lineId]);
+          }
+          return null;
+        };
+
         const canSave = snapDate && (
           snapMode === "global"
             ? !!snapGlobalValue
@@ -674,7 +704,12 @@ export default function Investments({ investments, onSave, banks = [], accountTy
                             <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 6 }}>{l.name} <span style={{ fontWeight: 400, color: "#6b7280" }}>({l.type})</span></div>
                             {noShares ? (
                               <div style={{ fontSize: 12, color: "#b45309", background: "#fef3c7", borderRadius: 6, padding: "6px 10px" }}>
-                                ⚠️ Aucun achat avec un nombre de parts renseigné pour cette ligne. Saisie impossible en mode "Cours par action".
+                                ⚠️ Aucun achat avec un nombre de parts renseigné. Saisie impossible en mode "Cours par action".
+                                {lastKnownValueForDisplay(l.id) !== null && (
+                                  <div style={{ marginTop: 4, color: "#6b7280" }}>
+                                    ↩ Valeur reportée : {lastKnownValueForDisplay(l.id).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
+                                  </div>
+                                )}
                               </div>
                             ) : (
                               <>
@@ -700,16 +735,30 @@ export default function Investments({ investments, onSave, banks = [], accountTy
                       }
 
                       // Mode "valeur totale"
+                      const isEmpty = !snapLineValues[l.id];
+                      const fallback = lastKnownValueForDisplay(l.id);
                       return (
-                        <label key={l.id} style={styles.label}>
-                          {l.name} ({l.type})
-                          <input
-                            type="number" inputMode="decimal" placeholder="Valeur en €"
-                            value={snapLineValues[l.id] || ""}
-                            onChange={e => setSnapLineValues(prev => ({ ...prev, [l.id]: e.target.value }))}
-                            style={styles.input}
-                          />
-                        </label>
+                        <div key={l.id} style={{ display: "grid", gap: 4 }}>
+                          <label style={styles.label}>
+                            {l.name} <span style={{ color: "#6b7280", fontWeight: 400 }}>({l.type})</span>
+                            <input
+                              type="number" inputMode="decimal" placeholder="Valeur en €"
+                              value={snapLineValues[l.id] || ""}
+                              onChange={e => setSnapLineValues(prev => ({ ...prev, [l.id]: e.target.value }))}
+                              style={styles.input}
+                            />
+                          </label>
+                          {isEmpty && fallback !== null && (
+                            <div style={{ fontSize: 11, color: "#6b7280", paddingLeft: 2 }}>
+                              ↩ Valeur reportée : {fallback.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
+                            </div>
+                          )}
+                          {isEmpty && fallback === null && (
+                            <div style={{ fontSize: 11, color: "#b45309", paddingLeft: 2 }}>
+                              ⚠️ Aucune valeur précédente — sera enregistrée à 0 €
+                            </div>
+                          )}
+                        </div>
                       );
                     })}
                   </div>
