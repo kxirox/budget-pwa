@@ -39,15 +39,19 @@ function getSnapshotTotal(s) {
 
 const styles = {
   card: {
-    background: "#fff",
+    background: "#fdfaf5",
+    border: "1px solid #e8dfc8",
     borderRadius: 16,
     padding: 16,
-    boxShadow: "0 1px 4px rgba(0,0,0,0.07)",
+    overflowX: "hidden",
+    boxSizing: "border-box",
   },
   statBox: {
-    background: "#f9f6f0",
+    background: "#f0e9d8",
     borderRadius: 10,
-    padding: "10px 12px",
+    padding: "8px 10px",
+    minWidth: 0,
+    boxSizing: "border-box",
   },
   sectionTitle: {
     fontWeight: 700,
@@ -64,8 +68,8 @@ function PieCard({ title, data }) {
   return (
     <div style={styles.card}>
       <div style={styles.sectionTitle}>{title}</div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center" }}>
-        <div style={{ width: 160, height: 160, flexShrink: 0 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center", width: "100%" }}>
+        <div style={{ width: 150, height: 150, flexShrink: 0, flexGrow: 0 }}>
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
               <Pie data={data} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={72} innerRadius={30}>
@@ -75,7 +79,7 @@ function PieCard({ title, data }) {
             </PieChart>
           </ResponsiveContainer>
         </div>
-        <div style={{ display: "grid", gap: 5, flex: 1, minWidth: 130 }}>
+        <div style={{ display: "grid", gap: 5, flex: 1, minWidth: 0 }}>
           {data.map((d, i) => (
             <div key={d.name} style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12 }}>
               <div style={{ width: 10, height: 10, borderRadius: 2, background: PIE_COLORS[i % PIE_COLORS.length], flexShrink: 0 }} />
@@ -341,7 +345,7 @@ export default function Patrimoine({
     return (
       <div style={{ marginTop: 12 }}>
         {/* Barre */}
-        <div style={{ background: "#e5e7eb", borderRadius: 99, height: 14, position: "relative", overflow: "visible" }}>
+        <div style={{ background: "#e5e7eb", borderRadius: 99, height: 14, position: "relative", overflow: "hidden" }}>
           <div style={{
             background: color,
             width: `${pct}%`,
@@ -378,7 +382,7 @@ export default function Patrimoine({
 
   // ── Render ───────────────────────────────────────────────────────────────────
   return (
-    <div style={{ padding: 12, display: "grid", gap: 12 }}>
+    <div style={{ padding: 12, display: "grid", gap: 12, width: "100%", boxSizing: "border-box", overflowX: "hidden" }}>
 
       {/* Header */}
       <div>
@@ -388,7 +392,7 @@ export default function Patrimoine({
       {/* Fortune totale */}
       <div style={styles.card}>
         <div style={styles.sectionTitle}>Fortune totale nette</div>
-        <div style={{ fontSize: 32, fontWeight: 900, color: fortuneTotale >= 0 ? "#16a34a" : "#ef4444", letterSpacing: -1 }}>
+        <div style={{ fontSize: "clamp(22px, 7vw, 32px)", fontWeight: 900, color: fortuneTotale >= 0 ? "#16a34a" : "#ef4444", letterSpacing: -1, wordBreak: "break-word" }}>
           {fmt(fortuneTotale)}
         </div>
 
