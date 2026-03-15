@@ -125,9 +125,11 @@ export default function Investments({ investments, onSave, banks = [], accountTy
 
       const accPurchases = purchases.filter(p => p.accountId === acc.id);
       const totalInvested = accPurchases.reduce((s, p) => s + Number(p.amount || 0), 0);
+      const totalFees = accPurchases.reduce((s, p) => s + Number(p.fees || 0), 0);
+      const totalCost = totalInvested + totalFees;
 
-      const perf = (latestValue !== null && totalInvested > 0)
-        ? { eur: latestValue - totalInvested, pct: ((latestValue - totalInvested) / totalInvested) * 100 }
+      const perf = (latestValue !== null && totalCost > 0)
+        ? { eur: latestValue - totalCost, pct: ((latestValue - totalCost) / totalCost) * 100 }
         : null;
 
       // Chart: snapshots chronologiques avec capital investi cumulé
