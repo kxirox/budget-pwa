@@ -194,6 +194,42 @@ export default function Investments({ investments, onSave, banks = [], accountTy
     });
   }, [accounts, purchases, snapshots]);
 
+  // ── Camembert global par type d'actif ──
+  const globalTypePieData = useMemo(() => {
+    const byType = {};
+    accounts.forEach(acc => {
+      const accPurchases = purchases.filter(p => p.accountId === acc.id);
+      const latestLinesSnap = snapshots
+        .filter(s => s.accountId === acc.id && s.mode === "lines")
+        .sort((a, b) => new Date(b.date) - new Date(a.date))[0] ?? null;
+
+      (acc.lines || []).forEach(l => {
+        const type = l.type || "Autre";
+        let value = 0;
+        if (latestLinesSnap) {
+          value = Number(latestLinesSnap.values?.[l.id] || 0);
+        } else {
+          // Fallback : capital investi sur cette ligne
+          value = accPurchases
+            .filter(p => p.lineId === l.id)
+            .reduce((s, p) => s + Number(p.amount || 0), 0);
+        }
+        if (value > 0) byType[type] = (byType[type] || 0) + value;
+      });
+
+      // Lignes sans type (achats "Général") → regrouper dans les achats sans ligne
+      const generalPurchases = accPurchases.filter(p => !p.lineId);
+      if (generalPurchases.length > 0) {
+        const generalValue = generalPurchases.reduce((s, p) => s + Number(p.amount || 0), 0);
+        if (generalValue > 0) byType["Autres"] = (byType["Autres"] || 0) + generalValue;
+      }
+    });
+
+    return Object.entries(byType)
+      .map(([name, value]) => ({ name, value: Math.round(value * 100) / 100 }))
+      .sort((a, b) => b.value - a.value);
+  }, [accounts, purchases, snapshots]);
+
   // ── Handlers ──
   function openSnapshotModal(accountId) {
     const acc = accounts.find(a => a.id === accountId);
@@ -412,22 +448,71 @@ export default function Investments({ investments, onSave, banks = [], accountTy
       </div>
 
       {/* ── Graphique global ── */}
-      {globalChartData.length >= 2 && (
+      {(globalChartData.length >= 2 || globalTypePieData.length >= 1) && (
         <div style={styles.card}>
-          <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>📈 Évolution du portefeuille</div>
-          <div style={{ height: 220 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={globalChartData} margin={{ top: 4, right: 4, left: 0, bottom: 4 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0e9d8" />
-                <XAxis dataKey="date" tick={{ fontSize: 10 }} />
-                <YAxis tick={{ fontSize: 10 }} tickFormatter={v => v + "€"} width={55} />
-                <Tooltip formatter={v => fmt(v)} />
-                <Legend wrapperStyle={{ fontSize: 11 }} />
-                <Line type="monotone" dataKey="Valeur totale" stroke="#2563eb" strokeWidth={2} dot />
-                <Line type="monotone" dataKey="Capital investi" stroke="#9ca3af" strokeWidth={1} strokeDasharray="4 4" dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
+          {/* Courbe évolution */}
+          {globalChartData.length >= 2 && (
+            <>
+              <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>📈 Évolution du portefeuille</div>
+              <div style={{ height: 220, marginBottom: 20 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={globalChartData} margin={{ top: 4, right: 4, left: 0, bottom: 4 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f0e9d8" />
+                    <XAxis dataKey="date" tick={{ fontSize: 10 }} />
+                    <YAxis tick={{ fontSize: 10 }} tickFormatter={v => v + "€"} width={55} />
+                    <Tooltip formatter={v => fmt(v)} />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    <Line type="monotone" dataKey="Valeur totale" stroke="#2563eb" strokeWidth={2} dot />
+                    <Line type="monotone" dataKey="Capital investi" stroke="#9ca3af" strokeWidth={1} strokeDasharray="4 4" dot={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </>
+          )}
+
+          {/* Camembert global par type d'actif */}
+          {globalTypePieData.length >= 1 && (() => {
+            const PIE_COLORS = ["#2563eb","#16a34a","#dc2626","#d97706","#7c3aed","#0891b2","#be185d","#65a30d"];
+            const total = globalTypePieData.reduce((s, d) => s + d.value, 0);
+            return (
+              <>
+                <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>
+                  🥧 Répartition par type d'actif
+                  <span style={{ fontWeight: 400, color: "#9ca3af", fontSize: 11, marginLeft: 6 }}>
+                    (tous comptes)
+                  </span>
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center" }}>
+                  <div style={{ width: 180, height: 180, flexShrink: 0 }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie data={globalTypePieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} innerRadius={35}>
+                          {globalTypePieData.map((_, i) => (
+                            <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                          ))}
+                        </Pie>
+                        <Tooltip formatter={v => fmt(v)} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div style={{ display: "grid", gap: 6, flex: 1, minWidth: 140 }}>
+                    {globalTypePieData.map((d, i) => (
+                      <div key={d.name} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+                        <div style={{ width: 12, height: 12, borderRadius: 3, background: PIE_COLORS[i % PIE_COLORS.length], flexShrink: 0 }} />
+                        <span style={{ flex: 1, color: "#374151", fontWeight: 600 }}>{d.name}</span>
+                        <span style={{ color: "#6b7280", fontSize: 12 }}>{total > 0 ? Math.round(d.value / total * 100) : 0} %</span>
+                        <span style={{ color: "#374151", fontSize: 12, fontWeight: 700 }}>{fmt(d.value)}</span>
+                      </div>
+                    ))}
+                    <div style={{ borderTop: "1px solid #e8dfc8", paddingTop: 6, display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                      <span style={{ color: "#6b7280" }}>Total</span>
+                      <span style={{ fontWeight: 800 }}>{fmt(total)}</span>
+                    </div>
+                  </div>
+                </div>
+              </>
+            );
+          })()}
         </div>
       )}
 
