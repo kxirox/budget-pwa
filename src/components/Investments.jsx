@@ -71,6 +71,67 @@ function getSnapshotTotal(s) {
   return Object.values(s.values || {}).reduce((sum, v) => sum + Number(v || 0), 0);
 }
 
+// ── Calcul XIRR par Newton-Raphson ──
+// cashflows : [{ amount: number, date: Date }] — achats en négatif, valeur finale en positif
+function calcXIRR(cashflows) {
+  if (!cashflows || cashflows.length < 2) return null;
+  const t0 = cashflows[0].date.getTime();
+  const MS_PER_YEAR = 365.25 * 24 * 3600 * 1000;
+  const npv  = r => cashflows.reduce((s, cf) => s + cf.amount / Math.pow(1 + r, (cf.date.getTime() - t0) / MS_PER_YEAR), 0);
+  const dnpv = r => cashflows.reduce((s, cf) => {
+    const t = (cf.date.getTime() - t0) / MS_PER_YEAR;
+    return s - t * cf.amount / Math.pow(1 + r, t + 1);
+  }, 0);
+  let rate = 0.1;
+  for (let i = 0; i < 200; i++) {
+    const df = dnpv(rate);
+    if (Math.abs(df) < 1e-12) break;
+    const next = rate - npv(rate) / df;
+    if (!isFinite(next) || next < -0.9999) return null;
+    if (Math.abs(next - rate) < 1e-7) return next;
+    rate = next;
+  }
+  return null;
+}
+
+// ── TWR approximatif : chaîne de sous-périodes entre snapshots consécutifs ──
+function calcTWR(sortedSnapshots, accPurchases) {
+  if (!sortedSnapshots || sortedSnapshots.length < 2) return null;
+  let twr = 1;
+  for (let i = 1; i < sortedSnapshots.length; i++) {
+    const startVal = getSnapshotTotal(sortedSnapshots[i - 1]);
+    const endVal   = getSnapshotTotal(sortedSnapshots[i]);
+    const startDate = sortedSnapshots[i - 1].date;
+    const endDate   = sortedSnapshots[i].date;
+    const flows = accPurchases
+      .filter(p => p.date > startDate && p.date <= endDate)
+      .reduce((s, p) => s + Number(p.amount || 0) + Number(p.fees || 0), 0);
+    const denom = startVal + flows;
+    if (denom <= 0) continue;
+    twr *= (endVal / denom);
+  }
+  return twr - 1;
+}
+
+function fmtDuration(years) {
+  if (!years || years < 0.01) return "—";
+  const y = Math.floor(years);
+  const m = Math.round((years - y) * 12);
+  if (y === 0) return `${m} mois`;
+  if (m === 0) return `${y} an${y > 1 ? "s" : ""}`;
+  return `${y} an${y > 1 ? "s" : ""} ${m} mois`;
+}
+
+function fmtRate(r) {
+  if (r === null || !Number.isFinite(r)) return "—";
+  return (r >= 0 ? "+" : "") + (r * 100).toFixed(2) + " %/an";
+}
+
+function fmtTWR(r) {
+  if (r === null || !Number.isFinite(r)) return "—";
+  return (r >= 0 ? "+" : "") + (r * 100).toFixed(2) + " %";
+}
+
 export default function Investments({ investments, onSave, banks = [], accountTypes = [] }) {
   const { accounts = [], purchases = [], snapshots = [] } = investments || {};
 
@@ -162,7 +223,33 @@ export default function Investments({ investments, onSave, banks = [], accountTy
         })).filter(d => d.value > 0);
       }
 
-      return { ...acc, latest, latestValue, totalInvested, perf, chartData, pieData, accSnapshots, accPurchases };
+      // ── Métriques avancées ──
+      const today = new Date();
+      const sortedByDate = [...accPurchases].sort((a, b) => a.date.localeCompare(b.date));
+      const firstPurchaseDate = sortedByDate[0]?.date ?? null;
+      const holdingYears = firstPurchaseDate
+        ? (today - new Date(firstPurchaseDate)) / (365.25 * 24 * 3600 * 1000)
+        : 0;
+
+      const annualizedReturn = (latestValue !== null && totalCost > 0 && holdingYears > 0.05)
+        ? Math.pow(latestValue / totalCost, 1 / holdingYears) - 1
+        : null;
+
+      const xirrCashflows = latestValue !== null && accPurchases.length > 0
+        ? [
+            ...accPurchases.map(p => ({
+              amount: -(Number(p.amount || 0) + Number(p.fees || 0)),
+              date: new Date(p.date),
+            })),
+            { amount: latestValue, date: today },
+          ].sort((a, b) => a.date - b.date)
+        : null;
+      const xirrRate = xirrCashflows ? calcXIRR(xirrCashflows) : null;
+
+      const sortedSnaps = [...accSnapshots].sort((a, b) => a.date.localeCompare(b.date));
+      const twrRate = calcTWR(sortedSnaps, accPurchases);
+
+      return { ...acc, latest, latestValue, totalInvested, totalFees: accPurchases.reduce((s,p) => s + Number(p.fees||0), 0), perf, chartData, pieData, accSnapshots, accPurchases, firstPurchaseDate, holdingYears, annualizedReturn, xirrRate, twrRate };
     });
   }, [accounts, purchases, snapshots]);
 
@@ -192,6 +279,51 @@ export default function Investments({ investments, onSave, banks = [], accountTy
         "Capital investi": Math.round(totalInv * 100) / 100,
       };
     });
+  }, [accounts, purchases, snapshots]);
+
+  // ── Métriques globales (XIRR + rendement annualisé) ──
+  const globalMetrics = useMemo(() => {
+    const today = new Date();
+    // Valeur globale actuelle = somme des derniers snapshots de chaque compte
+    let totalLatestValue = 0;
+    let hasAnySnapshot = false;
+    accounts.forEach(acc => {
+      const latest = snapshots
+        .filter(s => s.accountId === acc.id)
+        .sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+      if (latest) { totalLatestValue += getSnapshotTotal(latest); hasAnySnapshot = true; }
+    });
+    if (!hasAnySnapshot) return null;
+
+    const totalCost = purchases.reduce((s, p) => s + Number(p.amount || 0) + Number(p.fees || 0), 0);
+    if (totalCost <= 0) return null;
+
+    // Durée depuis le premier achat
+    const sortedPur = [...purchases].sort((a, b) => a.date.localeCompare(b.date));
+    const firstDate = sortedPur[0]?.date ?? null;
+    const holdingYears = firstDate
+      ? (today - new Date(firstDate)) / (365.25 * 24 * 3600 * 1000)
+      : 0;
+
+    const annualizedReturn = holdingYears > 0.05
+      ? Math.pow(totalLatestValue / totalCost, 1 / holdingYears) - 1
+      : null;
+
+    const xirrCashflows = purchases.length > 0
+      ? [
+          ...purchases.map(p => ({
+            amount: -(Number(p.amount || 0) + Number(p.fees || 0)),
+            date: new Date(p.date),
+          })),
+          { amount: totalLatestValue, date: today },
+        ].sort((a, b) => a.date - b.date)
+      : null;
+    const xirrRate = xirrCashflows ? calcXIRR(xirrCashflows) : null;
+
+    const globalPerf = totalLatestValue - totalCost;
+    const globalPerfPct = (globalPerf / totalCost) * 100;
+
+    return { totalLatestValue, totalCost, globalPerf, globalPerfPct, annualizedReturn, xirrRate, holdingYears };
   }, [accounts, purchases, snapshots]);
 
   // ── Camembert global par type d'actif ──
@@ -513,6 +645,50 @@ export default function Investments({ investments, onSave, banks = [], accountTy
               </>
             );
           })()}
+
+          {/* Métriques globales */}
+          {globalMetrics && (
+            <>
+              <div style={{ fontWeight: 700, fontSize: 14, marginTop: 20, marginBottom: 10 }}>
+                📐 Métriques globales
+                <span style={{ fontWeight: 400, color: "#9ca3af", fontSize: 11, marginLeft: 6 }}>(tous comptes)</span>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 8 }}>
+                <div style={styles.statBox}>
+                  <div style={{ fontSize: 11, color: "#6b7280" }}>Performance totale</div>
+                  <div style={{ fontWeight: 800, fontSize: 13, color: globalMetrics.globalPerf >= 0 ? "#16a34a" : "#ef4444" }}>
+                    {fmt(globalMetrics.globalPerf)}
+                  </div>
+                  <div style={{ fontSize: 10, color: globalMetrics.globalPerfPct >= 0 ? "#16a34a" : "#ef4444" }}>
+                    {fmtPct(globalMetrics.globalPerfPct)}
+                  </div>
+                </div>
+                {globalMetrics.holdingYears > 0.05 && (
+                  <div style={styles.statBox}>
+                    <div style={{ fontSize: 11, color: "#6b7280" }}>Durée totale</div>
+                    <div style={{ fontWeight: 700, fontSize: 13 }}>{fmtDuration(globalMetrics.holdingYears)}</div>
+                  </div>
+                )}
+                {globalMetrics.annualizedReturn !== null && (
+                  <div style={styles.statBox}>
+                    <div style={{ fontSize: 11, color: "#6b7280" }}>Rendement annualisé</div>
+                    <div style={{ fontWeight: 700, fontSize: 13, color: globalMetrics.annualizedReturn >= 0 ? "#16a34a" : "#ef4444" }}>
+                      {fmtRate(globalMetrics.annualizedReturn)}
+                    </div>
+                  </div>
+                )}
+                {globalMetrics.xirrRate !== null && (
+                  <div style={styles.statBox}>
+                    <div style={{ fontSize: 11, color: "#6b7280" }}>XIRR global</div>
+                    <div style={{ fontWeight: 700, fontSize: 13, color: globalMetrics.xirrRate >= 0 ? "#16a34a" : "#ef4444" }}>
+                      {fmtRate(globalMetrics.xirrRate)}
+                    </div>
+                    <div style={{ fontSize: 9, color: "#9ca3af" }}>taux interne annualisé</div>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
         </div>
       )}
 
@@ -554,7 +730,7 @@ export default function Investments({ investments, onSave, banks = [], accountTy
             </div>
           </div>
 
-          {/* Stats row */}
+          {/* Stats row — ligne 1 */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginTop: 12 }}>
             <div style={styles.statBox}>
               <div style={{ fontSize: 11, color: "#6b7280" }}>Valeur actuelle</div>
@@ -588,6 +764,44 @@ export default function Investments({ investments, onSave, banks = [], accountTy
               )}
             </div>
           </div>
+
+          {/* Stats row — ligne 2 : métriques avancées */}
+          {(acc.annualizedReturn !== null || acc.xirrRate !== null || acc.twrRate !== null || acc.holdingYears > 0) && (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(100px, 1fr))", gap: 8, marginTop: 8 }}>
+              {acc.holdingYears > 0.05 && (
+                <div style={styles.statBox}>
+                  <div style={{ fontSize: 11, color: "#6b7280" }}>Durée</div>
+                  <div style={{ fontWeight: 700, fontSize: 13 }}>{fmtDuration(acc.holdingYears)}</div>
+                </div>
+              )}
+              {acc.annualizedReturn !== null && (
+                <div style={styles.statBox}>
+                  <div style={{ fontSize: 11, color: "#6b7280" }}>Rendement annualisé</div>
+                  <div style={{ fontWeight: 700, fontSize: 13, color: acc.annualizedReturn >= 0 ? "#16a34a" : "#ef4444" }}>
+                    {fmtRate(acc.annualizedReturn)}
+                  </div>
+                </div>
+              )}
+              {acc.xirrRate !== null && (
+                <div style={styles.statBox}>
+                  <div style={{ fontSize: 11, color: "#6b7280" }}>XIRR</div>
+                  <div style={{ fontWeight: 700, fontSize: 13, color: acc.xirrRate >= 0 ? "#16a34a" : "#ef4444" }}>
+                    {fmtRate(acc.xirrRate)}
+                  </div>
+                  <div style={{ fontSize: 9, color: "#9ca3af" }}>taux interne annualisé</div>
+                </div>
+              )}
+              {acc.twrRate !== null && (
+                <div style={styles.statBox}>
+                  <div style={{ fontSize: 11, color: "#6b7280" }}>TWR <span style={{ fontWeight: 400, color: "#d97706" }}>≈</span></div>
+                  <div style={{ fontWeight: 700, fontSize: 13, color: acc.twrRate >= 0 ? "#16a34a" : "#ef4444" }}>
+                    {fmtTWR(acc.twrRate)}
+                  </div>
+                  <div style={{ fontSize: 9, color: "#9ca3af" }}>approx. (snapshots)</div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Bouton expand */}
           <button
