@@ -381,8 +381,8 @@ export default function Investments({ investments, onSave, banks = [], accountTy
         <div key={acc.id} style={styles.card}>
 
           {/* En-tête carte */}
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
-            <div>
+          <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "flex-start", gap: 6 }}>
+            <div style={{ minWidth: 0, flex: "1 1 180px" }}>
               <div style={{ fontWeight: 800, fontSize: 16 }}>{acc.bank} — {acc.accountType}</div>
               {acc.lines?.length > 0 && (
                 <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>
@@ -390,13 +390,14 @@ export default function Investments({ investments, onSave, banks = [], accountTy
                 </div>
               )}
             </div>
-            <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-              <button onClick={() => openSnapshotModal(acc.id)} style={styles.btnSmall}>📸</button>
-              <button onClick={() => openPurchaseModal(acc.id)} style={styles.btnSmall}>💶</button>
-              <button onClick={() => openEditLinesModal(acc.id)} style={styles.btnSmall}>✏️</button>
+            <div style={{ display: "flex", gap: 6, flexShrink: 0, flexWrap: "nowrap" }}>
+              <button onClick={() => openSnapshotModal(acc.id)} style={styles.btnSmall} title="Nouvelle valorisation">📸</button>
+              <button onClick={() => openPurchaseModal(acc.id)} style={styles.btnSmall} title="Nouvel achat">💶</button>
+              <button onClick={() => openEditLinesModal(acc.id)} style={styles.btnSmall} title="Modifier les lignes">✏️</button>
               <button
                 onClick={() => setDeleteConfirm({ type: "account", id: acc.id })}
                 style={{ ...styles.btnSmall, color: "#ef4444" }}
+                title="Supprimer le compte"
               >✕</button>
             </div>
           </div>
