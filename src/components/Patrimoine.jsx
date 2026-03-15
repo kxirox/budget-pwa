@@ -68,30 +68,32 @@ function PieCard({ title, data }) {
   return (
     <div style={styles.card}>
       <div style={styles.sectionTitle}>{title}</div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center", width: "100%" }}>
-        <div style={{ width: 150, height: 150, flexShrink: 0, flexGrow: 0 }}>
+      {/* Pie centré au-dessus, légende en-dessous sur mobile */}
+      <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}>
+        <div style={{ width: 160, height: 160 }}>
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
-              <Pie data={data} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={72} innerRadius={30}>
+              <Pie data={data} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={75} innerRadius={32}>
                 {data.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
               </Pie>
               <Tooltip formatter={v => fmt(v)} />
             </PieChart>
           </ResponsiveContainer>
         </div>
-        <div style={{ display: "grid", gap: 5, flex: 1, minWidth: 0 }}>
-          {data.map((d, i) => (
-            <div key={d.name} style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12 }}>
-              <div style={{ width: 10, height: 10, borderRadius: 2, background: PIE_COLORS[i % PIE_COLORS.length], flexShrink: 0 }} />
-              <span style={{ flex: 1, color: "#374151", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.name}</span>
-              <span style={{ color: "#6b7280" }}>{total > 0 ? Math.round(d.value / total * 100) : 0} %</span>
-              <span style={{ fontWeight: 700, minWidth: 70, textAlign: "right" }}>{fmtK(d.value)}</span>
-            </div>
-          ))}
-          <div style={{ borderTop: "1px solid #e8dfc8", paddingTop: 5, display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-            <span style={{ color: "#6b7280" }}>Total</span>
-            <span style={{ fontWeight: 800 }}>{fmt(total)}</span>
+      </div>
+      {/* Légende pleine largeur */}
+      <div style={{ display: "grid", gap: 6 }}>
+        {data.map((d, i) => (
+          <div key={d.name} style={{ display: "grid", gridTemplateColumns: "14px 1fr auto auto", alignItems: "center", gap: 6, fontSize: 12 }}>
+            <div style={{ width: 10, height: 10, borderRadius: 2, background: PIE_COLORS[i % PIE_COLORS.length] }} />
+            <span style={{ color: "#374151", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.name}</span>
+            <span style={{ color: "#6b7280", textAlign: "right", paddingRight: 6 }}>{total > 0 ? Math.round(d.value / total * 100) : 0} %</span>
+            <span style={{ fontWeight: 700, textAlign: "right" }}>{fmtK(d.value)}</span>
           </div>
+        ))}
+        <div style={{ borderTop: "1px solid #e8dfc8", paddingTop: 6, display: "grid", gridTemplateColumns: "1fr auto", fontSize: 12 }}>
+          <span style={{ color: "#6b7280" }}>Total</span>
+          <span style={{ fontWeight: 800 }}>{fmt(total)}</span>
         </div>
       </div>
     </div>
@@ -329,23 +331,23 @@ export default function Patrimoine({
   // ── Jauge Time Freedom ──
   function TimeFreedomGauge({ months }) {
     const PALIERS = [
-      { label: "6 mois",  val: 6,   color: "#ef4444" },
-      { label: "1 an",    val: 12,  color: "#f97316" },
-      { label: "2 ans",   val: 24,  color: "#eab308" },
-      { label: "5 ans",   val: 60,  color: "#22c55e" },
+      { label: "6 mois", val: 6  },
+      { label: "1 an",   val: 12 },
+      { label: "2 ans",  val: 24 },
+      { label: "5 ans",  val: 60 },
     ];
-    const maxVal  = 120; // 10 ans = 100% de la jauge
-    const pct     = Math.min(months / maxVal * 100, 100);
-    const color   = months >= 60 ? "#22c55e"
-                  : months >= 24 ? "#84cc16"
-                  : months >= 12 ? "#eab308"
-                  : months >= 6  ? "#f97316"
-                  : "#ef4444";
+    const maxVal = 120;
+    const pct    = Math.min(months / maxVal * 100, 100);
+    const color  = months >= 60 ? "#22c55e"
+                 : months >= 24 ? "#84cc16"
+                 : months >= 12 ? "#eab308"
+                 : months >= 6  ? "#f97316"
+                 : "#ef4444";
 
     return (
       <div style={{ marginTop: 12 }}>
-        {/* Barre */}
-        <div style={{ background: "#e5e7eb", borderRadius: 99, height: 14, position: "relative", overflow: "hidden" }}>
+        {/* Barre simple sans absolute */}
+        <div style={{ background: "#e5e7eb", borderRadius: 99, height: 12, overflow: "hidden" }}>
           <div style={{
             background: color,
             width: `${pct}%`,
@@ -354,28 +356,15 @@ export default function Patrimoine({
             transition: "width 0.5s",
             minWidth: pct > 0 ? 6 : 0,
           }} />
-          {/* Marqueurs paliers */}
-          {PALIERS.map(p => {
-            const pos = Math.min(p.val / maxVal * 100, 100);
-            return (
-              <div key={p.val} style={{ position: "absolute", left: `${pos}%`, top: -4, transform: "translateX(-50%)" }}>
-                <div style={{ width: 2, height: 22, background: "#9ca3af", margin: "0 auto" }} />
-              </div>
-            );
-          })}
         </div>
-        {/* Labels paliers */}
-        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, position: "relative" }}>
-          {PALIERS.map(p => {
-            const pos = Math.min(p.val / maxVal * 100, 100);
-            return (
-              <div key={p.val} style={{ position: "absolute", left: `${pos}%`, transform: "translateX(-50%)", textAlign: "center" }}>
-                <div style={{ fontSize: 9, color: "#9ca3af", whiteSpace: "nowrap" }}>{p.label}</div>
-              </div>
-            );
-          })}
+        {/* Labels paliers en flex normal — pas de position absolute */}
+        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 5 }}>
+          {PALIERS.map(p => (
+            <div key={p.val} style={{ textAlign: "center", fontSize: 10, color: "#9ca3af", flex: 1 }}>
+              {p.label}
+            </div>
+          ))}
         </div>
-        <div style={{ height: 20 }} />
       </div>
     );
   }
