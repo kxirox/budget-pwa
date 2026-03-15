@@ -88,6 +88,8 @@ export default function Investments({ investments, onSave, banks = [], accountTy
   const [formLines, setFormLines] = useState([]);
   const [formLineName, setFormLineName] = useState("");
   const [formLineType, setFormLineType] = useState("ETF");
+  const [formLineExchange, setFormLineExchange] = useState("");
+  const [formLineReplication, setFormLineReplication] = useState("");
 
   // ── Snapshot form ──
   const [snapDate, setSnapDate] = useState(new Date().toISOString().slice(0, 10));
@@ -298,9 +300,17 @@ export default function Investments({ investments, onSave, banks = [], accountTy
 
   function addFormLine() {
     if (!formLineName.trim()) return;
-    setFormLines(prev => [...prev, { id: uid(), name: formLineName.trim(), type: formLineType }]);
+    setFormLines(prev => [...prev, {
+      id: uid(),
+      name: formLineName.trim(),
+      type: formLineType,
+      ...(formLineExchange.trim() ? { exchange: formLineExchange.trim() } : {}),
+      ...(formLineReplication.trim() ? { replication: formLineReplication.trim() } : {}),
+    }]);
     setFormLineName("");
     setFormLineType("ETF");
+    setFormLineExchange("");
+    setFormLineReplication("");
   }
 
   function openEditLinesModal(accountId) {
@@ -455,6 +465,31 @@ export default function Investments({ investments, onSave, banks = [], accountTy
                 </div>
               )}
 
+              {/* Lignes d'actifs — détails */}
+              {acc.lines?.some(l => l.exchange || l.replication) && (
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6 }}>Lignes d'actifs</div>
+                  <div style={{ display: "grid", gap: 4 }}>
+                    {acc.lines.map(l => (
+                      <div key={l.id} style={{ fontSize: 12, padding: "6px 10px", background: "#f9f6f0", borderRadius: 8, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+                        <span style={{ fontWeight: 600, color: "#374151" }}>{l.name}</span>
+                        <span style={{ color: "#6b7280" }}>{l.type}</span>
+                        {l.exchange && (
+                          <span style={{ background: "#e0f2fe", color: "#0369a1", borderRadius: 4, padding: "1px 6px", fontSize: 11 }}>
+                            🏛 {l.exchange}
+                          </span>
+                        )}
+                        {l.replication && (
+                          <span style={{ background: "#dcfce7", color: "#15803d", borderRadius: 4, padding: "1px 6px", fontSize: 11 }}>
+                            ⚙️ {l.replication}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Valorisations */}
               <div>
                 <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6 }}>
@@ -591,6 +626,28 @@ export default function Investments({ investments, onSave, banks = [], accountTy
                   />
                   <TypeSelector value={formLineType} onChange={setFormLineType} inputStyle={{ ...styles.input, margin: 0 }} />
                   <button onClick={addFormLine} style={styles.btnSmall}>+</button>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginTop: 4 }}>
+                  <input
+                    placeholder="Place boursière (ex: Euronext Paris)"
+                    value={formLineExchange}
+                    onChange={e => setFormLineExchange(e.target.value)}
+                    style={{ ...styles.input, margin: 0, fontSize: 12 }}
+                    list="exchange-suggestions"
+                  />
+                  <datalist id="exchange-suggestions">
+                    {["Euronext Paris", "XETRA", "NYSE", "NASDAQ", "LSE", "Euronext Amsterdam", "SIX Swiss Exchange"].map(e => <option key={e} value={e} />)}
+                  </datalist>
+                  <select
+                    value={formLineReplication}
+                    onChange={e => setFormLineReplication(e.target.value)}
+                    style={{ ...styles.input, margin: 0, fontSize: 12, color: formLineReplication ? "#111827" : "#9ca3af" }}
+                  >
+                    <option value="">Réplication (optionnel)</option>
+                    <option value="Physique">Physique</option>
+                    <option value="Physique optimisée">Physique optimisée</option>
+                    <option value="Synthétique">Synthétique</option>
+                  </select>
                 </div>
               </div>
 
@@ -940,51 +997,101 @@ export default function Investments({ investments, onSave, banks = [], accountTy
                   <div style={{ color: "#6b7280", fontSize: 13 }}>Aucune ligne. Ajoutez-en une ci-dessous.</div>
                 )}
                 {editLinesState.map((l, i) => (
-                  <div key={l.id} style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: 6, alignItems: "center" }}>
-                    <input
-                      value={l.name}
-                      onChange={e => setEditLinesState(prev => prev.map((x, j) => j === i ? { ...x, name: e.target.value } : x))}
-                      placeholder="Nom de la ligne"
-                      style={{ ...styles.input, margin: 0 }}
-                    />
-                    <TypeSelector
-                      key={l.id}
-                      value={l.type}
-                      onChange={v => setEditLinesState(prev => prev.map((x, j) => j === i ? { ...x, type: v } : x))}
-                      inputStyle={{ ...styles.input, margin: 0 }}
-                    />
-                    <button
-                      onClick={() => setEditLinesState(prev => prev.filter((_, j) => j !== i))}
-                      style={{ ...styles.btnSmall, color: "#ef4444" }}
-                    >✕</button>
+                  <div key={l.id} style={{ background: "#f9f6f0", borderRadius: 8, padding: "8px 10px", display: "grid", gap: 6 }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: 6, alignItems: "center" }}>
+                      <input
+                        value={l.name}
+                        onChange={e => setEditLinesState(prev => prev.map((x, j) => j === i ? { ...x, name: e.target.value } : x))}
+                        placeholder="Nom de la ligne"
+                        style={{ ...styles.input, margin: 0 }}
+                      />
+                      <TypeSelector
+                        key={l.id}
+                        value={l.type}
+                        onChange={v => setEditLinesState(prev => prev.map((x, j) => j === i ? { ...x, type: v } : x))}
+                        inputStyle={{ ...styles.input, margin: 0 }}
+                      />
+                      <button
+                        onClick={() => setEditLinesState(prev => prev.filter((_, j) => j !== i))}
+                        style={{ ...styles.btnSmall, color: "#ef4444" }}
+                      >✕</button>
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                      <input
+                        placeholder="Place boursière"
+                        value={l.exchange || ""}
+                        onChange={e => setEditLinesState(prev => prev.map((x, j) => j === i ? { ...x, exchange: e.target.value } : x))}
+                        style={{ ...styles.input, margin: 0, fontSize: 12 }}
+                        list="exchange-suggestions"
+                      />
+                      <select
+                        value={l.replication || ""}
+                        onChange={e => setEditLinesState(prev => prev.map((x, j) => j === i ? { ...x, replication: e.target.value } : x))}
+                        style={{ ...styles.input, margin: 0, fontSize: 12, color: l.replication ? "#111827" : "#9ca3af" }}
+                      >
+                        <option value="">Réplication</option>
+                        <option value="Physique">Physique</option>
+                        <option value="Physique optimisée">Physique optimisée</option>
+                        <option value="Synthétique">Synthétique</option>
+                      </select>
+                    </div>
                   </div>
                 ))}
               </div>
 
               {/* Ajout d'une nouvelle ligne depuis cette modale */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: 6, marginBottom: 16, paddingTop: 10, borderTop: "1px solid #e8dfc8" }}>
-                <input
-                  placeholder="Nouvelle ligne…"
-                  value={formLineName}
-                  onChange={e => setFormLineName(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === "Enter" && formLineName.trim()) {
-                      e.preventDefault();
-                      setEditLinesState(prev => [...prev, { id: uid(), name: formLineName.trim(), type: formLineType || "ETF" }]);
-                      setFormLineName("");
-                    }
-                  }}
-                  style={{ ...styles.input, margin: 0 }}
-                />
-                <TypeSelector value={formLineType} onChange={setFormLineType} inputStyle={{ ...styles.input, margin: 0 }} />
-                <button
-                  onClick={() => {
-                    if (!formLineName.trim()) return;
-                    setEditLinesState(prev => [...prev, { id: uid(), name: formLineName.trim(), type: formLineType || "ETF" }]);
-                    setFormLineName("");
-                  }}
-                  style={styles.btnSmall}
-                >+</button>
+              <div style={{ display: "grid", gap: 6, marginBottom: 16, paddingTop: 10, borderTop: "1px solid #e8dfc8" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: 6 }}>
+                  <input
+                    placeholder="Nouvelle ligne…"
+                    value={formLineName}
+                    onChange={e => setFormLineName(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === "Enter" && formLineName.trim()) {
+                        e.preventDefault();
+                        setEditLinesState(prev => [...prev, {
+                          id: uid(), name: formLineName.trim(), type: formLineType || "ETF",
+                          ...(formLineExchange.trim() ? { exchange: formLineExchange.trim() } : {}),
+                          ...(formLineReplication.trim() ? { replication: formLineReplication.trim() } : {}),
+                        }]);
+                        setFormLineName(""); setFormLineExchange(""); setFormLineReplication("");
+                      }
+                    }}
+                    style={{ ...styles.input, margin: 0 }}
+                  />
+                  <TypeSelector value={formLineType} onChange={setFormLineType} inputStyle={{ ...styles.input, margin: 0 }} />
+                  <button
+                    onClick={() => {
+                      if (!formLineName.trim()) return;
+                      setEditLinesState(prev => [...prev, {
+                        id: uid(), name: formLineName.trim(), type: formLineType || "ETF",
+                        ...(formLineExchange.trim() ? { exchange: formLineExchange.trim() } : {}),
+                        ...(formLineReplication.trim() ? { replication: formLineReplication.trim() } : {}),
+                      }]);
+                      setFormLineName(""); setFormLineExchange(""); setFormLineReplication("");
+                    }}
+                    style={styles.btnSmall}
+                  >+</button>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                  <input
+                    placeholder="Place boursière (optionnel)"
+                    value={formLineExchange}
+                    onChange={e => setFormLineExchange(e.target.value)}
+                    style={{ ...styles.input, margin: 0, fontSize: 12 }}
+                    list="exchange-suggestions"
+                  />
+                  <select
+                    value={formLineReplication}
+                    onChange={e => setFormLineReplication(e.target.value)}
+                    style={{ ...styles.input, margin: 0, fontSize: 12, color: formLineReplication ? "#111827" : "#9ca3af" }}
+                  >
+                    <option value="">Réplication (optionnel)</option>
+                    <option value="Physique">Physique</option>
+                    <option value="Physique optimisée">Physique optimisée</option>
+                    <option value="Synthétique">Synthétique</option>
+                  </select>
+                </div>
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
