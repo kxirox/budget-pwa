@@ -43,6 +43,7 @@ import Forecast from "./components/Forecast.jsx";
 import ManageLists from "./components/ManageLists";
 import SubCategories from "./components/SubCategories.jsx";
 import Investments from "./components/Investments.jsx";
+import Patrimoine from "./components/Patrimoine.jsx";
 import ImportExport from "./components/ImportExport.jsx";
 import { loadBanks, saveBanks, loadAccountTypes, saveAccountTypes } from "./storage";
 import {
@@ -1066,6 +1067,16 @@ function updateExpense(id, patch) {
           setScrollTarget={setScrollTarget}
           scrollTarget={scrollTarget}
           onScrollDone={() => setScrollTarget(null)}
+        />
+      )}
+
+      {tab === "patrimoine" && (
+        <Patrimoine
+          expenses={expenses}
+          investments={investments}
+          exchangeRates={exchangeRates}
+          accountCurrencies={accountCurrencies}
+          accountContribRates={accountContribRates}
         />
       )}
 

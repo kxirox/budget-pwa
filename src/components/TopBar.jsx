@@ -9,6 +9,7 @@ const MAIN_TABS = [
 
 // Onglets dans le menu "Plus"
 const MORE_TABS = [
+  { key: "patrimoine", label: "Patrimoine" },
   { key: "invest",    label: "Investissements" },
   { key: "cats",      label: "Catégories" },
   { key: "forecast",  label: "Prévisionnel" },
