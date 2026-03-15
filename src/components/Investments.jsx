@@ -105,6 +105,9 @@ export default function Investments({ investments, onSave, banks = [], accountTy
   const [purPricePerShare, setPurPricePerShare] = useState("");
   const [purAnnualFeesPct, setPurAnnualFeesPct] = useState("");
   const [purShowDetails, setPurShowDetails] = useState(false);
+  const [purShowAddLine, setPurShowAddLine] = useState(false);
+  const [purNewLineName, setPurNewLineName] = useState("");
+  const [purNewLineType, setPurNewLineType] = useState("ETF");
 
   // ── Computed stats per account ──
   const accountStats = useMemo(() => {
@@ -164,6 +167,9 @@ export default function Investments({ investments, onSave, banks = [], accountTy
     setPurPricePerShare("");
     setPurAnnualFeesPct("");
     setPurShowDetails(false);
+    setPurShowAddLine(false);
+    setPurNewLineName("");
+    setPurNewLineType("ETF");
     setShowPurchaseModal(accountId);
   }
 
@@ -215,6 +221,19 @@ export default function Investments({ investments, onSave, banks = [], accountTy
     };
     onSave({ ...investments, purchases: [...purchases, newPurchase] });
     setShowPurchaseModal(null);
+  }
+
+  function addLineFromPurchaseModal() {
+    if (!purNewLineName.trim() || !showPurchaseModal) return;
+    const newLine = { id: uid(), name: purNewLineName.trim(), type: purNewLineType };
+    const updatedAccounts = accounts.map(a =>
+      a.id === showPurchaseModal ? { ...a, lines: [...(a.lines || []), newLine] } : a
+    );
+    onSave({ ...investments, accounts: updatedAccounts });
+    setPurLineId(newLine.id);
+    setPurShowAddLine(false);
+    setPurNewLineName("");
+    setPurNewLineType("ETF");
   }
 
   function addFormLine() {
@@ -609,15 +628,43 @@ export default function Investments({ investments, onSave, banks = [], accountTy
                   Date
                   <input type="date" value={purDate} onChange={e => setPurDate(e.target.value)} style={styles.input} />
                 </label>
-                {acc.lines?.length > 0 && (
+                <div>
                   <label style={styles.label}>
                     Ligne / Actif
-                    <select value={purLineId} onChange={e => setPurLineId(e.target.value)} style={{ ...styles.input, width: "100%", boxSizing: "border-box" }}>
-                      <option value="">— Général (sans ligne) —</option>
-                      {acc.lines.map(l => <option key={l.id} value={l.id}>{l.name} ({l.type})</option>)}
-                    </select>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      <select value={purLineId} onChange={e => setPurLineId(e.target.value)} style={{ ...styles.input, margin: 0, flex: 1 }}>
+                        <option value="">— Général (sans ligne) —</option>
+                        {(acc.lines || []).map(l => <option key={l.id} value={l.id}>{l.name} ({l.type})</option>)}
+                      </select>
+                      <button
+                        type="button"
+                        title="Ajouter un nouvel actif"
+                        onClick={() => { setPurShowAddLine(v => !v); setPurNewLineName(""); setPurNewLineType("ETF"); }}
+                        style={{ ...styles.btnSmall, flexShrink: 0, fontWeight: 800, fontSize: 16 }}
+                      >+</button>
+                    </div>
                   </label>
-                )}
+                  {purShowAddLine && (
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: 6, marginTop: 8, padding: "10px 12px", background: "#f0e9d8", borderRadius: 10 }}>
+                      <input
+                        autoFocus
+                        placeholder="Nom de l'actif…"
+                        value={purNewLineName}
+                        onChange={e => setPurNewLineName(e.target.value)}
+                        onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addLineFromPurchaseModal(); } }}
+                        style={{ ...styles.input, margin: 0 }}
+                      />
+                      <TypeSelector value={purNewLineType} onChange={setPurNewLineType} inputStyle={{ ...styles.input, margin: 0 }} />
+                      <button
+                        type="button"
+                        onClick={addLineFromPurchaseModal}
+                        disabled={!purNewLineName.trim()}
+                        style={{ ...styles.btnSmall, background: "#111827", color: "white", opacity: purNewLineName.trim() ? 1 : 0.4 }}
+                        title="Confirmer"
+                      >✓</button>
+                    </div>
+                  )}
+                </div>
                 <label style={styles.label}>
                   Montant total déboursé (€)
                   <input
