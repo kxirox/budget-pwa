@@ -308,7 +308,7 @@ export default function Patrimoine({
     const limitStr = `${twelveMonthsAgo.getFullYear()}-${String(twelveMonthsAgo.getMonth() + 1).padStart(2, "0")}-01`;
 
     const depenses = expenses.filter(e =>
-      e.kind === "depense" &&
+      e.kind === "expense" &&
       e.date >= limitStr
     );
 
